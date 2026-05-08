@@ -30,22 +30,14 @@ require File.join(flutter_root, 'packages', 'flutter_tools', 'bin', 'podhelper.r
 flutter_ios_podfile_setup
 
 target 'Runner' do
-  use_frameworks!
+  # 🔥 Fix 1: Use static linkage as recommended
+  use_frameworks! :linkage => :static
   use_modular_headers!
+  
   flutter_install_all_ios_pods File.dirname(File.realpath(__FILE__))
 
-  # ── GLOBAL FIX: Bypass broken sqflite git tags ──
-  # This forces CocoaPods to use a stable commit instead of the corrupted tags
+  # 🔥 Fix 2: Explicitly fix the sqflite commit without complex hooks
   pod 'sqflite', :git => 'https://github.com/tekartik/sqflite.git', :commit => 'fdc352fabaf5916e7faa1f96ad02b1957e93e5a5'
-
-  # ── THE ULTIMATE FIX: Force sqflite to be local only ──
-  pre_install do |installer|
-    installer.pod_targets.each do |target|
-      if target.pod_name == 'sqflite'
-        target.instance_variable_set(:@source, { :path => ".symlinks/plugins/sqflite/darwin" })
-      end
-    end
-  end
 end
 
 post_install do |installer|
