@@ -495,7 +495,7 @@ class _WebViewScreenState extends State<WebViewScreen> {
                     final cookieManager = WebViewCookieManager();
                     await cookieManager.clearCookies();
                     await _controller.clearCache();
-                    await _controller.clearLocalStorage();
+                    await _controller.runJavaScript('localStorage.clear(); sessionStorage.clear();');
                     ScaffoldMessenger.of(context).showSnackBar(
                       const SnackBar(
                         content: Text("تم مسح ذاكرة التخزين المؤقت"),

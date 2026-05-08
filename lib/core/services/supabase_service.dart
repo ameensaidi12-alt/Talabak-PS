@@ -5,7 +5,7 @@ import 'dart:typed_data';
 import 'package:crypto/crypto.dart';
 import 'package:flutter/foundation.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
-import 'package:google_sign_in/google_sign_in.dart';
+import 'package:google_sign_in/google_sign_in.dart' as g_auth;
 import 'package:geolocator/geolocator.dart';
  import 'local_log_service.dart';
  import '../models/models.dart';
@@ -1471,9 +1471,9 @@ class SupabaseService {
     const iosClientId =
         '1072349230592-m6f8f8k9k8k8k8k8k8k8k8k8k8k8k8k8.apps.googleusercontent.com'; // Placeholder for iOS until plist found
 
-    final GoogleSignIn googleSignIn = GoogleSignIn(
-      serverClientId: webClientId,
+    final g_auth.GoogleSignIn googleSignIn = g_auth.GoogleSignIn(
       clientId: iosClientId,
+      serverClientId: webClientId,
     );
 
     final googleUser = await googleSignIn.signIn();
