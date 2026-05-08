@@ -1,52 +1,23 @@
 platform :ios, '14.0'
-
-# CocoaPods analytics sends network stats synchronously affecting build performance.
 ENV['COCOAPODS_DISABLE_STATS'] = '1'
-
-# Manually define Firebase SDK version to fix the 'nil' error in firebase_core
-def firebase_sdk_version
-  '11.14.0'
-end
-
-project 'Runner', {
-  'Debug' => :debug,
-  'Release' => :release,
-  'Profile' => :profile,
-}
-
+def firebase_sdk_version; '11.14.0'; end
+install! 'cocoapods', :repo_update => true
+project 'Runner', { 'Debug' => :debug, 'Release' => :release, 'Profile' => :profile }
 def flutter_root
-  # Try to get from environment first (Standard on CI like Codemagic)
   return ENV['FLUTTER_ROOT'] if ENV['FLUTTER_ROOT']
-
-  generated_xcode_build_settings_path = File.expand_path('Flutter/Generated.xcconfig', __dir__)
-  if File.exist?(generated_xcode_build_settings_path)
-    File.foreach(generated_xcode_build_settings_path) do |line|
-      # Support different formats: FLUTTER_ROOT=path, FLUTTER_ROOT = path, FLUTTER_ROOT="path"
-      matches = line.match(/\A\s*FLUTTER_ROOT\s*=\s*["']?(.*?)["']?\s*\z/)
-      return matches[1] if matches
-    end
+  path = File.expand_path('Flutter/Generated.xcconfig', __dir__)
+  if File.exist?(path)
+    File.foreach(path) { |l| m = l.match(/\A\s*FLUTTER_ROOT\s*=\s*["']?(.*?)["']?\s*\z/); return m[1] if m }
   end
-  
-  # Fallback for Codemagic default path if all else fails
   return '/Users/builder/programs/flutter' if File.exist?('/Users/builder/programs/flutter')
-  
-  raise "FLUTTER_ROOT not found. Please ensure flutter pub get has been run."
+  raise "FLUTTER_ROOT not found."
 end
-
-# USE THE OFFICIAL FLUTTER PODHELPER FROM THE SDK
-flutter_install_utils_path = File.join(flutter_root, 'packages', 'flutter_tools', 'bin', 'podhelper.rb')
-unless File.exist?(flutter_install_utils_path)
-  raise "Could not find podhelper.rb at #{flutter_install_utils_path}"
-end
-require flutter_install_utils_path
-
+require File.join(flutter_root, 'packages', 'flutter_tools', 'bin', 'podhelper.rb')
 target 'Runner' do
   use_frameworks!
   use_modular_headers!
-
   flutter_install_all_ios_pods File.dirname(__FILE__)
 end
-
 post_install do |installer|
   installer.pods_project.targets.each do |target|
     flutter_additional_ios_build_settings(target)
