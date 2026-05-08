@@ -35,7 +35,10 @@ dependencies:
   cached_video_player_plus: ^4.1.0
   video_player: ^2.8.2
   audioplayers: ^6.6.0
-  sqflite: ^2.4.2
+  sqflite:
+    git:
+      url: https://github.com/tekartik/sqflite.git
+      path: sqflite
   share_plus: ^12.0.2
   app_links: ^6.4.1
   crypto: ^3.0.7
