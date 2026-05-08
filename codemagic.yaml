@@ -6,18 +6,23 @@ workflows:
     environment:
       flutter: stable
       xcode: latest
-      # 🔥 Fix 3: Downgrade to 1.15.2 as recommended
       cocoapods: 1.15.2
     scripts:
-      - name: Flutter pub get
+      - name: Downgrade build tools for compatibility
+        script: |
+          # 🔥 Fix: Downgrade xcodeproj and cocoapods to stable versions
+          gem uninstall xcodeproj -a -x || true
+          gem install xcodeproj -v 1.25.0 --no-document
+          gem install cocoapods -v 1.15.2 --no-document
+      - name: Flutter pub get and precache
         script: |
           flutter pub get
+          flutter precache --ios
       - name: Fix CocoaPods and install
         script: |
-          # Ensure correct CocoaPods version
-          sudo gem install cocoapods -v 1.15.2 --no-document
           cd ios
-          rm -rf Pods Podfile.lock
+          rm -rf Pods Podfile.lock .symlinks
+          pod deintegrate
           pod install --repo-update
           cd ..
       - name: Build iOS

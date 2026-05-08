@@ -1,5 +1,8 @@
 platform :ios, '15.0'
 
+# 🔥 Fix: Disable input/output paths for better compatibility with Xcode 16/26
+install! 'cocoapods', :disable_input_output_paths => true
+
 ENV['COCOAPODS_DISABLE_STATS'] = '1'
 
 project 'Runner', {
@@ -30,10 +33,8 @@ require File.join(flutter_root, 'packages', 'flutter_tools', 'bin', 'podhelper.r
 flutter_ios_podfile_setup
 
 target 'Runner' do
-  # 🔥 Fix 1: Use static linkage as recommended
   use_frameworks! :linkage => :static
   use_modular_headers!
-  
   flutter_install_all_ios_pods File.dirname(File.realpath(__FILE__))
 end
 
