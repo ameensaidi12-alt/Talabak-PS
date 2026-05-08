@@ -64,17 +64,4 @@ flutter:
   uses-material-design: true
   assets:
     - assets/images/
-    - assets/images/onboarding1.png
-    - assets/images/onboarding2.png
-    - assets/images/onboarding3.png
-    - assets/images/onboarding4.png
-    - assets/images/onboarding5.png
-    - assets/images/google_logo.png
-    - assets/images/app_logo.png
-    - assets/images/marker_icon.png
-    - assets/images/store_pin.png
-    - assets/images/app_icon_pin.png
-    - assets/images/sub_area_pin_gold.png
-    - assets/images/ultimate_full_bleed.png
-    - assets/images/Golden _T_ with flame design.png
     - assets/sounds/
