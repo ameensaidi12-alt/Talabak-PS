@@ -3,11 +3,9 @@ platform :ios, '14.0'
 # CocoaPods analytics sends network stats synchronously affecting build performance.
 ENV['COCOAPODS_DISABLE_STATS'] = '1'
 
-# Global variable for Firebase SDK
-$FirebaseSDKVersion = '11.14.0'
-
+# Manually define Firebase SDK version to fix the 'nil' error in firebase_core
 def firebase_sdk_version
-  $FirebaseSDKVersion
+  '11.14.0'
 end
 
 project 'Runner', {
@@ -29,7 +27,9 @@ def flutter_root
   raise "FLUTTER_ROOT not found in #{generated_xcode_build_settings_path}. Try deleting Generated.xcconfig, then run flutter pub get"
 end
 
-require File.expand_path('Flutter/podhelper.rb', __dir__)
+# USE THE OFFICIAL FLUTTER PODHELPER FROM THE SDK
+flutter_install_utils_path = File.join(flutter_root, 'packages', 'flutter_tools', 'bin', 'podhelper.rb')
+require flutter_install_utils_path
 
 target 'Runner' do
   use_frameworks!
@@ -43,7 +43,6 @@ post_install do |installer|
     flutter_additional_ios_build_settings(target)
     target.build_configurations.each do |config|
       config.build_settings['IPHONEOS_DEPLOYMENT_TARGET'] = '14.0'
-      # Required for some Firebase versions
       config.build_settings['GCC_PREPROCESSOR_DEFINITIONS'] ||= ['$(inherited)', 'PERMISSION_NOTIFICATIONS=1']
     end
   end
