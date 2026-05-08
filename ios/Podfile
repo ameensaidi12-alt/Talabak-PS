@@ -15,20 +15,29 @@ project 'Runner', {
 }
 
 def flutter_root
-  generated_xcode_build_settings_path = File.expand_path('Flutter/Generated.xcconfig', __dir__)
-  unless File.exist?(generated_xcode_build_settings_path)
-    raise "#{generated_xcode_build_settings_path} must exist. If you're running pod install manually, make sure flutter pub get is executed first"
-  end
+  # Try to get from environment first (Standard on CI like Codemagic)
+  return ENV['FLUTTER_ROOT'] if ENV['FLUTTER_ROOT']
 
-  File.foreach(generated_xcode_build_settings_path) do |line|
-    matches = line.match(/\AFLUTTER_ROOT=(.*)\z/)
-    return matches[1] if matches
+  generated_xcode_build_settings_path = File.expand_path('Flutter/Generated.xcconfig', __dir__)
+  if File.exist?(generated_xcode_build_settings_path)
+    File.foreach(generated_xcode_build_settings_path) do |line|
+      # Support different formats: FLUTTER_ROOT=path, FLUTTER_ROOT = path, FLUTTER_ROOT="path"
+      matches = line.match(/\A\s*FLUTTER_ROOT\s*=\s*["']?(.*?)["']?\s*\z/)
+      return matches[1] if matches
+    end
   end
-  raise "FLUTTER_ROOT not found in #{generated_xcode_build_settings_path}. Try deleting Generated.xcconfig, then run flutter pub get"
+  
+  # Fallback for Codemagic default path if all else fails
+  return '/Users/builder/programs/flutter' if File.exist?('/Users/builder/programs/flutter')
+  
+  raise "FLUTTER_ROOT not found. Please ensure flutter pub get has been run."
 end
 
 # USE THE OFFICIAL FLUTTER PODHELPER FROM THE SDK
 flutter_install_utils_path = File.join(flutter_root, 'packages', 'flutter_tools', 'bin', 'podhelper.rb')
+unless File.exist?(flutter_install_utils_path)
+  raise "Could not find podhelper.rb at #{flutter_install_utils_path}"
+end
 require flutter_install_utils_path
 
 target 'Runner' do
