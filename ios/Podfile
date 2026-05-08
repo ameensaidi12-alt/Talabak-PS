@@ -10,7 +10,7 @@ project 'Runner', {
 }
 
 def flutter_root
-  generated_xcode_build_settings_path = File.expand_with_path('Flutter/Generated.xcconfig')
+  generated_xcode_build_settings_path = File.expand_path('Flutter/Generated.xcconfig')
   unless File.exist?(generated_xcode_build_settings_path)
     raise "#{generated_xcode_build_settings_path} must exist. If you're running pod install manually, make sure flutter pub get is executed first"
   end
@@ -22,7 +22,7 @@ def flutter_root
   raise "FLUTTER_ROOT not found in #{generated_xcode_build_settings_path}. Try deleting Generated.xcconfig, then run flutter pub get"
 end
 
-require File.expand_with_path('Flutter/podhelper.rb', File.dirname(__FILE__))
+require File.expand_path('Flutter/podhelper.rb', File.dirname(__FILE__))
 
 target 'Runner' do
   use_frameworks!
