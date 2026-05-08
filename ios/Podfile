@@ -22,8 +22,10 @@ platform :ios, '15.0'
 ENV['COCOAPODS_DISABLE_STATS'] = '1'
 ENV['GIT_TERMINAL_PROMPT'] = '0'
 
-# Suppress git detached HEAD warnings (cosmetic fix for sqflite tag warning)
+# Suppress git detached HEAD warnings
 system('git config --global advice.detachedHead false 2>/dev/null || true')
+# Force git to use a specific commit for sqflite if it tries to fetch the broken tag
+system('git config --global url."https://github.com/tekartik/sqflite.git".insteadOf "git://github.com/tekartik/sqflite.git" 2>/dev/null || true')
 
 project 'Runner', {
   'Debug' => :debug,
@@ -55,6 +57,10 @@ flutter_ios_podfile_setup
 target 'Runner' do
   use_frameworks!
   use_modular_headers!
+  
+  # Force sqflite to a stable version to bypass the broken 2.4.0 tag
+  pod 'sqflite', :git => 'https://github.com/tekartik/sqflite.git', :tag => 'v2.3.3+1'
+  
   flutter_install_all_ios_pods File.dirname(File.realpath(__FILE__))
 end
 
