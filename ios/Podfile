@@ -1,4 +1,8 @@
 platform :ios, '15.0'
+# Jazri Fix: Clear problematic git tags before pod install starts
+system("git tag -d 2.4.0 2>/dev/null || true")
+system("git fetch --tags --force 2>/dev/null || true")
+
 ENV['COCOAPODS_DISABLE_STATS'] = '1'
 def firebase_sdk_version; '11.14.0'; end
 install! 'cocoapods'
