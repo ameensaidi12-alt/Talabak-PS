@@ -1,19 +1,6 @@
-# ── Aggressive Git Fix for Codemagic (Fixes map nil error) ──
-# This forces git to ignore the broken tag and use the commit directly
-system('git config --global url."https://github.com/tekartik/sqflite.git".insteadOf "git://github.com/tekartik/sqflite.git" 2>/dev/null || true')
-system('git config --global advice.detachedHead false 2>/dev/null || true')
-# ──────────────────────────────────────────────────────────
-
 platform :ios, '15.0'
 
-# Disable CocoaPods analytics (speeds up build)
 ENV['COCOAPODS_DISABLE_STATS'] = '1'
-ENV['GIT_TERMINAL_PROMPT'] = '0'
-
-# Suppress git detached HEAD warnings
-system('git config --global advice.detachedHead false 2>/dev/null || true')
-# Force git to use a specific commit for sqflite if it tries to fetch the broken tag
-system('git config --global url."https://github.com/tekartik/sqflite.git".insteadOf "git://github.com/tekartik/sqflite.git" 2>/dev/null || true')
 
 project 'Runner', {
   'Debug' => :debug,
@@ -45,17 +32,7 @@ flutter_ios_podfile_setup
 target 'Runner' do
   use_frameworks!
   use_modular_headers!
-  
   flutter_install_all_ios_pods File.dirname(File.realpath(__FILE__))
-  
-  # Force fix for any pod that might be using the broken sqflite git source
-  pre_install do |installer|
-    installer.pod_targets.each do |target|
-      if target.pod_name == 'sqflite'
-        puts "[Podfile] Fixing sqflite source..."
-      end
-    end
-  end
 end
 
 post_install do |installer|
@@ -63,7 +40,6 @@ post_install do |installer|
     flutter_additional_ios_build_settings(target)
     target.build_configurations.each do |config|
       config.build_settings['IPHONEOS_DEPLOYMENT_TARGET'] = '15.0'
-      # Required for awesome_notifications
       config.build_settings['GCC_PREPROCESSOR_DEFINITIONS'] ||= [
         '$(inherited)',
         'PERMISSION_NOTIFICATIONS=1',
