@@ -58,9 +58,6 @@ target 'Runner' do
   use_frameworks!
   use_modular_headers!
   
-  # Force sqflite to a stable version to bypass the broken 2.4.0 tag
-  pod 'sqflite', :git => 'https://github.com/tekartik/sqflite.git', :tag => 'v2.3.3+1'
-  
   flutter_install_all_ios_pods File.dirname(File.realpath(__FILE__))
 end
 
