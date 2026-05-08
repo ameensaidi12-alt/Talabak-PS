@@ -1,16 +1,12 @@
 platform :ios, '15.0'
 
-# Suppress git detached HEAD warnings globally
-ENV['GIT_TERMINAL_PROMPT'] = '0'
+# Disable CocoaPods analytics (speeds up build)
 ENV['COCOAPODS_DISABLE_STATS'] = '1'
+ENV['GIT_TERMINAL_PROMPT'] = '0'
 
-# Suppress broken tag warnings by configuring git before pod operations
+# Suppress git detached HEAD warnings (cosmetic fix for sqflite tag warning)
 system('git config --global advice.detachedHead false 2>/dev/null || true')
-system('git config --global fetch.prune true 2>/dev/null || true')
 
-def firebase_sdk_version; '11.15.0'; end
-
-install! 'cocoapods'
 project 'Runner', {
   'Debug' => :debug,
   'Release' => :release,
@@ -18,24 +14,30 @@ project 'Runner', {
 }
 
 def flutter_root
-  return ENV['FLUTTER_ROOT'] if ENV['FLUTTER_ROOT']
-  path = File.expand_path('Flutter/Generated.xcconfig', __dir__)
-  if File.exist?(path)
-    File.foreach(path) do |l|
-      m = l.match(/\A\s*FLUTTER_ROOT\s*=\s*["']?(.*?)["']?\s*\z/)
-      return m[1] if m
-    end
+  generated_xcode_build_settings_path = File.expand_path(
+    File.join('..', 'Flutter', 'Generated.xcconfig'), __FILE__
+  )
+  unless File.exist?(generated_xcode_build_settings_path)
+    raise "#{generated_xcode_build_settings_path} must exist. " \
+          "Run 'flutter pub get' first."
   end
-  return '/Users/builder/programs/flutter' if File.exist?('/Users/builder/programs/flutter')
-  raise "FLUTTER_ROOT not found. Define FLUTTER_ROOT or install Flutter."
+
+  File.foreach(generated_xcode_build_settings_path) do |line|
+    matches = line.match(/FLUTTER_ROOT\=(.*)/)
+    return matches[1].strip if matches
+  end
+  raise "FLUTTER_ROOT not found in #{generated_xcode_build_settings_path}. " \
+        "Try deleting Generated.xcconfig, then run flutter pub get."
 end
 
 require File.join(flutter_root, 'packages', 'flutter_tools', 'bin', 'podhelper.rb')
 
+flutter_ios_podfile_setup
+
 target 'Runner' do
   use_frameworks!
   use_modular_headers!
-  flutter_install_all_ios_pods File.dirname(__FILE__)
+  flutter_install_all_ios_pods File.dirname(File.realpath(__FILE__))
 end
 
 post_install do |installer|
@@ -43,10 +45,11 @@ post_install do |installer|
     flutter_additional_ios_build_settings(target)
     target.build_configurations.each do |config|
       config.build_settings['IPHONEOS_DEPLOYMENT_TARGET'] = '15.0'
-      # Required for awesome_notifications push permission
-      config.build_settings['GCC_PREPROCESSOR_DEFINITIONS'] ||= ['$(inherited)', 'PERMISSION_NOTIFICATIONS=1']
-      # Fix for arm64 simulator builds on Apple Silicon Codemagic machines
-      config.build_settings['EXCLUDED_ARCHS[sdk=iphonesimulator*]'] = 'arm64 i386'
+      # Required for awesome_notifications
+      config.build_settings['GCC_PREPROCESSOR_DEFINITIONS'] ||= [
+        '$(inherited)',
+        'PERMISSION_NOTIFICATIONS=1',
+      ]
     end
   end
 end
