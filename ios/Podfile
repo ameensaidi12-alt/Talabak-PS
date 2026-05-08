@@ -34,6 +34,10 @@ target 'Runner' do
   use_modular_headers!
   flutter_install_all_ios_pods File.dirname(File.realpath(__FILE__))
 
+  # ── GLOBAL FIX: Bypass broken sqflite git tags ──
+  # This forces CocoaPods to use a stable commit instead of the corrupted tags
+  pod 'sqflite', :git => 'https://github.com/tekartik/sqflite.git', :commit => 'fdc352fabaf5916e7faa1f96ad02b1957e93e5a5'
+
   # ── THE ULTIMATE FIX: Force sqflite to be local only ──
   pre_install do |installer|
     installer.pod_targets.each do |target|
