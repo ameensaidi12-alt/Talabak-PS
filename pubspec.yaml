@@ -19,7 +19,7 @@ dependencies:
   intl: ^0.20.2
   cached_network_image: ^3.3.1
   flutter_spinkit: ^5.2.0
-  geolocator: ^11.0.0
+  geolocator: ^14.0.2
   geocoding: ^3.0.0
   google_maps_flutter: ^2.6.1
   shared_preferences: ^2.2.2
