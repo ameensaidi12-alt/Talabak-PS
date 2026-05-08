@@ -1471,7 +1471,7 @@ class SupabaseService {
     const iosClientId =
         '1072349230592-m6f8f8k9k8k8k8k8k8k8k8k8k8k8k8k8.apps.googleusercontent.com'; // Placeholder for iOS until plist found
 
-    final g_auth.GoogleSignIn googleSignIn = g_auth.GoogleSignIn(
+    final googleSignIn = g_auth.GoogleSignIn(
       clientId: iosClientId,
       serverClientId: webClientId,
     );
