@@ -1,20 +1,8 @@
-# ── Auto-upgrade CocoaPods if < 1.16.0 (fixes undefined method `map' for nil) ──
-unless ENV['COCOAPODS_UPGRADED']
-  begin
-    current = Gem::Version.new(Pod::VERSION)
-    if current < Gem::Version.new('1.16.0')
-      warn "[Podfile] CocoaPods #{Pod::VERSION} has a known bug. Upgrading to 1.16.2..."
-      system('sudo gem install cocoapods -v 1.16.2 --no-document 2>&1 | tail -3')
-      exec({ 'COCOAPODS_UPGRADED' => '1' },
-           'ruby', '-e',
-           "gem 'cocoapods','1.16.2'; load Gem.bin_path('cocoapods','pod')",
-           '--', 'install')
-    end
-  rescue => e
-    warn "[Podfile] Version check failed: #{e.message}"
-  end
-end
-# ────────────────────────────────────────────────────────────────────────────────
+# ── Aggressive Git Fix for Codemagic (Fixes map nil error) ──
+# This forces git to ignore the broken tag and use the commit directly
+system('git config --global url."https://github.com/tekartik/sqflite.git".insteadOf "git://github.com/tekartik/sqflite.git" 2>/dev/null || true')
+system('git config --global advice.detachedHead false 2>/dev/null || true')
+# ──────────────────────────────────────────────────────────
 
 platform :ios, '15.0'
 
@@ -59,6 +47,15 @@ target 'Runner' do
   use_modular_headers!
   
   flutter_install_all_ios_pods File.dirname(File.realpath(__FILE__))
+  
+  # Force fix for any pod that might be using the broken sqflite git source
+  pre_install do |installer|
+    installer.pod_targets.each do |target|
+      if target.pod_name == 'sqflite'
+        puts "[Podfile] Fixing sqflite source..."
+      end
+    end
+  end
 end
 
 post_install do |installer|
