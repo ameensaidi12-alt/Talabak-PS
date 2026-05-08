@@ -35,9 +35,6 @@ target 'Runner' do
   use_modular_headers!
   
   flutter_install_all_ios_pods File.dirname(File.realpath(__FILE__))
-
-  # 🔥 Fix 2: Explicitly fix the sqflite commit without complex hooks
-  pod 'sqflite', :git => 'https://github.com/tekartik/sqflite.git', :commit => 'fdc352fabaf5916e7faa1f96ad02b1957e93e5a5'
 end
 
 post_install do |installer|
