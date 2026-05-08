@@ -1,7 +1,8 @@
 workflows:
-  ios-workflow:
-    name: iOS Build
+  ios-build:
+    name: Talabak iOS Build
     max_build_duration: 60
+    instance_type: mac_mini_m2
     environment:
       flutter: stable
       xcode: latest
@@ -10,18 +11,17 @@ workflows:
       - name: Flutter pub get
         script: |
           flutter pub get
-
-      - name: Fix pods and install
+      - name: Fix CocoaPods and install
         script: |
+          # Force install correct CocoaPods version
+          sudo gem install cocoapods -v 1.16.2 --no-document
           git config --global advice.detachedHead false
           cd ios
           rm -rf Pods Podfile.lock
-          pod install --repo-update
+          pod install --repo-update --verbose
           cd ..
-
       - name: Build iOS
         script: |
           flutter build ios --release --no-codesign
-
     artifacts:
       - build/ios/ipa/*.ipa
