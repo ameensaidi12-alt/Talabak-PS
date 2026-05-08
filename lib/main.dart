@@ -98,7 +98,20 @@ void main() async {
 
   try {
     // Initialize Firebase for all platforms including Windows
-    await Firebase.initializeApp();
+    if (Platform.isWindows) {
+      await Firebase.initializeApp(
+        options: const FirebaseOptions(
+          apiKey: 'AIzaSyDCcw6dDWD88Dc8WLk8EyJ0oE7gEzsjXRc',
+          appId: '1:1072349230592:android:664c96de4d867c2aba8ae5', // Using Android App ID as fallback for Desktop
+          messagingSenderId: '1072349230592',
+          projectId: 'astra-be847',
+          storageBucket: 'astra-be847.firebasestorage.app',
+        ),
+      );
+    } else {
+      await Firebase.initializeApp();
+    }
+    
     if (kIsWeb || Platform.isAndroid || Platform.isIOS) {
       FirebaseMessaging.onBackgroundMessage(_firebaseMessagingBackgroundHandler);
     }
