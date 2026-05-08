@@ -19,7 +19,16 @@ def flutter_install_ios_plugin_pods(ios_application_path = nil)
   plugins_config['plugins']['ios'].each do |plugin|
     name = plugin['name']
     path = plugin['path']
-    pod name, :path => File.join(path, 'ios')
+    
+    # Check for 'ios' or 'darwin' directory (modern plugins use 'darwin')
+    ios_path = File.join(path, 'ios')
+    darwin_path = File.join(path, 'darwin')
+    
+    if File.exist?(darwin_path)
+      pod name, :path => darwin_path
+    elsif File.exist?(ios_path)
+      pod name, :path => ios_path
+    end
   end
 end
 
