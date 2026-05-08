@@ -1,0 +1,1839 @@
+import 'package:flutter/material.dart';
+import 'package:google_fonts/google_fonts.dart';
+import '../../../core/services/supabase_service.dart';
+import '../../../core/models/models.dart';
+import 'package:intl/intl.dart' as intl;
+
+class AreaRevenueScreen extends StatefulWidget {
+  const AreaRevenueScreen({super.key});
+
+  @override
+  State<AreaRevenueScreen> createState() => _AreaRevenueScreenState();
+}
+
+class _AreaRevenueScreenState extends State<AreaRevenueScreen> {
+  final _supabaseService = SupabaseService();
+  bool _isLoading = true;
+  bool _showOnlyMainAreas = true;
+  List<Map<String, dynamic>> _areaStats = [];
+  DateTimeRange? _dateRange;
+  double _globalLifetimeProfit = 0;
+  Map<String, String> _lastAreaPayments = {};
+  Map<String, dynamic>? _currentUserProfile;
+  
+  @override
+  void initState() {
+    super.initState();
+    // تحديث تلقائي عند فتح الصفحة
+    _loadData();
+  }
+
+  Future<void> _loadData() async {
+    if (!mounted) return;
+    setState(() => _isLoading = true);
+    try {
+      final user = _supabaseService.client.auth.currentUser;
+      if (user != null && _currentUserProfile == null) {
+        _currentUserProfile = await _supabaseService.client.from('profiles').select().eq('id', user.id).single();
+      }
+
+      var areas = await _supabaseService.getDeliveryAreas();
+      
+      if (_currentUserProfile != null && _currentUserProfile!['role'] == 'supervisor') {
+        final assignedId = _currentUserProfile!['assigned_area_id']?.toString();
+        if (assignedId != null) {
+          List<String> getAllSubAreaIds(String pid) {
+            List<String> ids = [pid];
+            final children = areas.where((a) => a['parent_id']?.toString() == pid);
+            for (var child in children) {
+              ids.addAll(getAllSubAreaIds(child['id'].toString()));
+            }
+            return ids;
+          }
+          final allAssignedIds = getAllSubAreaIds(assignedId);
+          areas = areas.where((a) => allAssignedIds.contains(a['id'].toString())).toList();
+        } else {
+          areas = [];
+        }
+      }
+      
+      var ordersQuery = _supabaseService.client
+          .from('orders')
+          .select('subtotal, commission_rate, vendor_id, vendors(area_id)')
+          .eq('status', 'delivered');
+      
+      if (_dateRange != null) {
+        ordersQuery = ordersQuery
+            .gte('created_at', _dateRange!.start.toIso8601String())
+            .lte('created_at', _dateRange!.end.add(const Duration(days: 1)).toIso8601String());
+      }
+
+      final ordersResponse = await ordersQuery;
+      final List<dynamic> orders = ordersResponse as List;
+      
+      final areaRevenue = <String, double>{};
+      final areaProfit = <String, double>{};
+      final areaVendorCount = <String, int>{};
+      final areaDebt = <String, double>{};
+
+      final allAreasRes = await _supabaseService.getDeliveryAreas();
+      final List<Map<String, dynamic>> allAreas = List<Map<String, dynamic>>.from(allAreasRes);
+      for (var area in allAreas) {
+        final aid = area['id'].toString();
+        areaRevenue[aid] = 0; areaProfit[aid] = 0; areaVendorCount[aid] = 0; areaDebt[aid] = 0;
+      }
+
+      for (var order in orders) {
+        final subtotal = (order['subtotal'] as num? ?? 0).toDouble();
+        final rate = (order['commission_rate'] as num? ?? 0).toDouble();
+        final aid = order['vendors']?['area_id']?.toString();
+        if (aid != null) {
+          areaRevenue[aid] = (areaRevenue[aid] ?? 0) + subtotal;
+          areaProfit[aid] = (areaProfit[aid] ?? 0) + (subtotal * rate / 100);
+        }
+      }
+
+      final vendorsFinanceRes = await _supabaseService.client.from('vendors').select('id, area_id, current_balance');
+      for (var v in (vendorsFinanceRes as List)) {
+        final aid = v['area_id']?.toString();
+        final bal = (v['current_balance'] as num? ?? 0).toDouble();
+        if (aid != null) {
+          areaVendorCount[aid] = (areaVendorCount[aid] ?? 0) + 1;
+          if (bal < 0) areaDebt[aid] = (areaDebt[aid] ?? 0) + bal.abs();
+        }
+      }
+
+      Map<String, double> recursiveRevenue = Map.from(areaRevenue);
+      Map<String, double> recursiveProfit = Map.from(areaProfit);
+      Map<String, int> recursiveVendors = Map.from(areaVendorCount);
+      Map<String, double> recursiveDebt = Map.from(areaDebt);
+
+      void propagateStats(String parentId) {
+        final children = allAreas.where((a) => a['parent_id']?.toString() == parentId);
+        for (var child in children) {
+          final cid = child['id'].toString();
+          propagateStats(cid);
+          recursiveRevenue[parentId] = (recursiveRevenue[parentId] ?? 0) + (recursiveRevenue[cid] ?? 0);
+          recursiveProfit[parentId] = (recursiveProfit[parentId] ?? 0) + (recursiveProfit[cid] ?? 0);
+          recursiveVendors[parentId] = (recursiveVendors[parentId] ?? 0) + (recursiveVendors[cid] ?? 0);
+          recursiveDebt[parentId] = (recursiveDebt[parentId] ?? 0) + (recursiveDebt[cid] ?? 0);
+        }
+      }
+
+      final rootAreas = allAreas.where((a) => a['parent_id'] == null).toList();
+      for (var root in rootAreas) propagateStats(root['id'].toString());
+
+      double globalProfit = 0;
+      var oQuery = _supabaseService.client.from('orders').select('subtotal, commission_rate, vendors!inner(area_id)').eq('status', 'delivered');
+      final visibleAreaIds = areas.map((a) => a['id'].toString()).toList();
+      if (_currentUserProfile != null && _currentUserProfile!['role'] == 'supervisor' && visibleAreaIds.isNotEmpty) {
+        oQuery = oQuery.inFilter('vendors.area_id', visibleAreaIds);
+      }
+      final ordersSumRes = await oQuery;
+      for (var o in (ordersSumRes as List)) {
+        globalProfit += ((o['subtotal'] as num? ?? 0).toDouble() * (o['commission_rate'] as num? ?? 0).toDouble() / 100);
+      }
+
+      final areaPaymentsRes = await _supabaseService.client.from('area_payment_records').select('area_id, payment_date').order('payment_date', ascending: false);
+      final lastPayments = <String, String>{};
+      for (var p in (areaPaymentsRes as List)) {
+        if (!lastPayments.containsKey(p['area_id'].toString())) lastPayments[p['area_id'].toString()] = p['payment_date'].toString();
+      }
+
+      final List<Map<String, dynamic>> results = [];
+      for (var area in areas) {
+        final areaId = area['id'].toString();
+        results.add({
+          'id': areaId, 'raw_id': area['id'], 'name': area['name']?.toString() ?? 'منطقة غير مسمى',
+          'parent_id': area['parent_id'], 'revenue': recursiveRevenue[areaId] ?? 0.0,
+          'profit': recursiveProfit[areaId] ?? 0.0, 'vendor_count': recursiveVendors[areaId] ?? 0,
+          'debt': recursiveDebt[areaId] ?? 0.0, 'color': _getAreaColor(results.length),
+        });
+      }
+      results.sort((a, b) => (b['revenue'] as double).compareTo(a['revenue'] as double));
+
+      if (mounted) {
+        setState(() {
+          _areaStats = results;
+          _globalLifetimeProfit = globalProfit;
+          _lastAreaPayments = lastPayments;
+          _isLoading = false;
+        });
+      }
+    } catch (e) {
+      debugPrint("Error: $e");
+      if (mounted) setState(() => _isLoading = false);
+    }
+  }
+
+  Future<void> _selectDateRange() async {
+    final picked = await showDateRangePicker(
+      context: context,
+      firstDate: DateTime(2023),
+      lastDate: DateTime.now(),
+      initialDateRange: _dateRange,
+      builder: (context, child) {
+        return Theme(
+          data: ThemeData.dark().copyWith(
+            colorScheme: const ColorScheme.dark(
+              primary: Color(0xFFD00030),
+              onPrimary: Colors.white,
+              surface: Color(0xFF1E1E2C),
+              onSurface: Colors.white,
+            ),
+            dialogBackgroundColor: const Color(0xFF0F0F1A),
+          ),
+          child: child!,
+        );
+      },
+    );
+    if (picked != null) {
+      setState(() => _dateRange = picked);
+      _loadData();
+    }
+  }
+
+  Color _getAreaColor(int index) {
+    List<Color> colors = [
+      const Color(0xFFD00030),
+      const Color(0xFF1E88E5),
+      const Color(0xFF43A047),
+      const Color(0xFFFB8C00),
+      const Color(0xFF8E24AA),
+      const Color(0xFF00ACC1),
+    ];
+    return colors[index % colors.length];
+  }
+
+  List<Map<String, dynamic>> get _filteredAreas {
+    if (_showOnlyMainAreas) {
+      return _areaStats.where((a) => a['parent_id'] == null).toList();
+    }
+    return _areaStats;
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final filtered = _filteredAreas;
+
+    return Scaffold(
+      backgroundColor: const Color(0xFF0F0F1A),
+      body: _isLoading
+          ? const Center(child: CircularProgressIndicator(color: Color(0xFFD00030)))
+          : LayoutBuilder(
+              builder: (context, constraints) {
+                final isNarrow = constraints.maxWidth < 400;
+                final isMedium = constraints.maxWidth < 700;
+                final crossAxisCount = isNarrow ? 1 : (isMedium ? 2 : 3);
+                final hPadding = isNarrow ? 12.0 : 16.0;
+
+                return CustomScrollView(
+                  physics: const BouncingScrollPhysics(),
+                  slivers: [
+                    SliverAppBar(
+                      expandedHeight: 180,
+                      pinned: true,
+                      stretch: true,
+                      backgroundColor: const Color(0xFF0F0F1A),
+                      surfaceTintColor: Colors.transparent,
+                      title: Text(
+                        "إيرادات المناطق",
+                        style: GoogleFonts.cairo(fontWeight: FontWeight.bold, color: Colors.white, fontSize: 18),
+                      ),
+                      actions: [
+                        IconButton(
+                          icon: Icon(_showOnlyMainAreas ? Icons.account_tree_outlined : Icons.list_alt, color: Colors.white),
+                          tooltip: _showOnlyMainAreas ? "عرض جميع المناطق" : "عرض المناطق الرئيسية فقط",
+                          onPressed: () => setState(() => _showOnlyMainAreas = !_showOnlyMainAreas),
+                        ),
+                        IconButton(
+                          icon: Icon(_dateRange == null ? Icons.calendar_today : Icons.event_available, color: _dateRange == null ? Colors.white : const Color(0xFFD00030)),
+                          onPressed: _selectDateRange,
+                        ),
+                        IconButton(
+                          icon: const Icon(Icons.refresh, color: Colors.white),
+                          onPressed: _loadData,
+                        ),
+                      ],
+                      flexibleSpace: FlexibleSpaceBar(
+                        background: Stack(
+                          fit: StackFit.expand,
+                          children: [
+                            Container(
+                              decoration: const BoxDecoration(
+                                gradient: LinearGradient(
+                                  begin: Alignment.topLeft,
+                                  end: Alignment.bottomRight,
+                                  colors: [Color(0xFFD00030), Color(0xFF600010), Color(0xFF0F0F1A)],
+                                ),
+                              ),
+                            ),
+                            Opacity(
+                              opacity: 0.1,
+                              child: CustomPaint(painter: _HeaderPatternPainter(color: Colors.white)),
+                            ),
+                            SafeArea(
+                              child: Column(
+                                mainAxisAlignment: MainAxisAlignment.center,
+                                children: [
+                                  const SizedBox(height: 30),
+                                  Text(
+                                    _showOnlyMainAreas ? "المناطق الرئيسية" : "جميع المناطق",
+                                    style: GoogleFonts.cairo(color: Colors.white, fontSize: isNarrow ? 22 : 26, fontWeight: FontWeight.w900),
+                                  ),
+                                  Text(
+                                    "إجمالي المناطق: ${filtered.length}",
+                                    style: GoogleFonts.cairo(color: Colors.white70, fontSize: 12),
+                                  ),
+                                ],
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ),
+                    SliverToBoxAdapter(
+                      child: Padding(
+                        padding: const EdgeInsets.all(16),
+                        child: _buildGlobalProfitCard(),
+                      ),
+                    ),
+                    SliverToBoxAdapter(
+                      child: Padding(
+                        padding: EdgeInsets.fromLTRB(hPadding, 16, hPadding, 12),
+                        child: Row(
+                          children: [
+                            Text(
+                              "توزيع الإيرادات",
+                              style: GoogleFonts.cairo(fontSize: 16, fontWeight: FontWeight.bold, color: Colors.white),
+                            ),
+                            const Spacer(),
+                            _buildAuditCenterButton(),
+                          ],
+                        ),
+                      ),
+                    ),
+                    SliverPadding(
+                      padding: EdgeInsets.symmetric(horizontal: hPadding),
+                      sliver: SliverGrid(
+                        gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
+                          crossAxisCount: crossAxisCount,
+                          childAspectRatio: isNarrow ? 1.5 : (isMedium ? 0.9 : 1.0),
+                          crossAxisSpacing: 12,
+                          mainAxisSpacing: 12,
+                        ),
+                        delegate: SliverChildBuilderDelegate(
+                          (context, index) => _buildAreaCard(filtered[index]),
+                          childCount: filtered.length,
+                        ),
+                      ),
+                    ),
+                    const SliverToBoxAdapter(child: SizedBox(height: 100)),
+                  ],
+                );
+              },
+            ),
+    );
+  }
+
+  void _showGeneralCommissionLogs() async {
+    setState(() => _isLoading = true);
+    try {
+      final logsRes = await _supabaseService.client
+          .from('commission_change_logs')
+          .select('*, vendors(name), profiles:changed_by(full_name)')
+          .order('created_at', ascending: false)
+          .limit(50);
+      
+      final logs = List<Map<String, dynamic>>.from(logsRes as List);
+      setState(() => _isLoading = false);
+
+      if (!mounted) return;
+      showModalBottomSheet(
+        context: context,
+        backgroundColor: const Color(0xFF161625),
+        isScrollControlled: true,
+        shape: const RoundedRectangleBorder(borderRadius: BorderRadius.vertical(top: Radius.circular(24))),
+        builder: (context) {
+          return DraggableScrollableSheet(
+            initialChildSize: 0.7,
+            maxChildSize: 0.9,
+            minChildSize: 0.5,
+            expand: false,
+            builder: (context, scrollController) {
+              return Container(
+                padding: const EdgeInsets.all(24),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      "سجل العمولات العام (آخر 50 عملية)",
+                      style: GoogleFonts.cairo(fontSize: 18, fontWeight: FontWeight.bold, color: Colors.white),
+                    ),
+                    const SizedBox(height: 16),
+                    Expanded(
+                      child: ListView.builder(
+                        controller: scrollController,
+                        itemCount: logs.length,
+                        itemBuilder: (context, index) {
+                          final log = logs[index];
+                          return _buildGeneralLogItem(log);
+                        },
+                      ),
+                    ),
+                  ],
+                ),
+              );
+            },
+          );
+        },
+      );
+    } catch (e) {
+      setState(() => _isLoading = false);
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text("خطأ في تحميل السجل: $e")));
+    }
+  }
+
+  Widget _buildGeneralLogItem(Map<String, dynamic> log) {
+    return Container(
+      margin: const EdgeInsets.only(bottom: 12),
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: Colors.white.withOpacity(0.05),
+        borderRadius: BorderRadius.circular(16),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              Text(
+                log['vendors']?['name']?.toString() ?? "متجر غير معروف",
+                style: GoogleFonts.cairo(color: Colors.white, fontWeight: FontWeight.bold),
+              ),
+              Text(
+                intl.DateFormat('yyyy/MM/dd').format(DateTime.parse(log['created_at'].toString())),
+                style: GoogleFonts.cairo(color: Colors.white38, fontSize: 11),
+              ),
+            ],
+          ),
+          const Divider(color: Colors.white10),
+          Row(
+            children: [
+              Text("بواسطة: ${log['profiles']?['full_name'] ?? 'مدير'}", style: const TextStyle(color: Colors.white70, fontSize: 12)),
+              const Spacer(),
+              Text("${log['old_rate']}%", style: const TextStyle(color: Colors.white24, fontSize: 12, decoration: TextDecoration.lineThrough)),
+              const Icon(Icons.arrow_forward, color: Colors.white38, size: 12),
+              Text("${log['new_rate']}%", style: const TextStyle(color: Color(0xFFD00030), fontWeight: FontWeight.bold, fontSize: 14)),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildHierarchyToggle() {
+    return Container(
+      decoration: BoxDecoration(
+        color: Colors.white.withOpacity(0.05),
+        borderRadius: BorderRadius.circular(12),
+      ),
+      child: Row(
+        children: [
+          _buildToggleButton(Icons.apps, _showOnlyMainAreas, true),
+          _buildToggleButton(Icons.grid_view, !_showOnlyMainAreas, false),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildToggleButton(IconData icon, bool active, bool value) {
+    return GestureDetector(
+      onTap: () => setState(() => _showOnlyMainAreas = value),
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+        decoration: BoxDecoration(
+          color: active ? const Color(0xFFD00030).withOpacity(0.2) : Colors.transparent,
+          borderRadius: BorderRadius.circular(12),
+          border: active ? Border.all(color: const Color(0xFFD00030).withOpacity(0.5)) : null,
+        ),
+        child: Icon(icon, color: active ? const Color(0xFFD00030) : Colors.white24, size: 20),
+      ),
+    );
+  }
+
+  Widget _buildAreaCard(Map<String, dynamic> area) {
+    final revenue = area['revenue'] as double;
+    final debt = (area['debt'] as num? ?? 0).toDouble();
+    final currencyFormat = intl.NumberFormat.currency(symbol: '₪', decimalDigits: 0);
+
+    return GestureDetector(
+      onTap: () {
+        Navigator.push(
+          context,
+          MaterialPageRoute(
+            builder: (context) => AreaDetailScreen(
+              areaId: area['id'].toString(),
+              rawAreaId: area['raw_id'],
+              areaName: (area['name'] ?? 'بدون اسم').toString(),
+              baseColor: area['color'],
+            ),
+          ),
+        ).then((_) => _loadData());
+      },
+      child: Container(
+        decoration: BoxDecoration(
+          borderRadius: BorderRadius.circular(24),
+          gradient: LinearGradient(
+            begin: Alignment.topLeft,
+            end: Alignment.bottomRight,
+            colors: [
+              area['color'].withOpacity(0.15),
+              const Color(0xFF1E1E2C),
+            ],
+          ),
+          border: Border.all(color: area['color'].withOpacity(0.3), width: 1.5),
+          boxShadow: [
+            BoxShadow(
+              color: area['color'].withOpacity(0.05),
+              blurRadius: 20,
+              offset: const Offset(0, 10),
+            ),
+          ],
+        ),
+        clipBehavior: Clip.antiAlias,
+        child: Stack(
+          children: [
+            Positioned(
+              right: -20,
+              bottom: -20,
+              child: Icon(
+                Icons.location_on,
+                size: 100,
+                color: area['color'].withOpacity(0.05),
+              ),
+            ),
+            Padding(
+              padding: const EdgeInsets.all(20),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Container(
+                    padding: const EdgeInsets.all(10),
+                    decoration: BoxDecoration(
+                      color: area['color'].withOpacity(0.2),
+                      shape: BoxShape.circle,
+                    ),
+                    child: Icon(Icons.analytics, color: area['color'], size: 24),
+                  ),
+                  const Spacer(),
+                  Text(
+                    (area['name'] ?? "").toString(),
+                    style: GoogleFonts.cairo(
+                      fontSize: 18,
+                      fontWeight: FontWeight.bold,
+                      color: Colors.white,
+                    ),
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                  const SizedBox(height: 4),
+                  Text(
+                    "${area['vendor_count']} متجر",
+                    style: GoogleFonts.cairo(color: Colors.white54, fontSize: 12),
+                  ),
+                  const SizedBox(height: 12),
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    children: [
+                      Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            currencyFormat.format(revenue),
+                            style: GoogleFonts.cairo(
+                              fontSize: 18,
+                              fontWeight: FontWeight.w900,
+                              color: Colors.white,
+                            ),
+                          ),
+                          Text(
+                            "إيرادات الفترة",
+                            style: GoogleFonts.cairo(color: Colors.white38, fontSize: 9),
+                          ),
+                        ],
+                      ),
+                      Column(
+                        crossAxisAlignment: CrossAxisAlignment.center,
+                        children: [
+                          Text(
+                            "₪${(area['profit'] as double).toStringAsFixed(1)}",
+                            style: GoogleFonts.cairo(
+                              fontSize: 18,
+                              fontWeight: FontWeight.w900,
+                              color: Colors.greenAccent,
+                            ),
+                          ),
+                          Text(
+                            "الربح المحقق",
+                            style: GoogleFonts.cairo(color: Colors.white38, fontSize: 9),
+                          ),
+                        ],
+                      ),
+                      Column(
+                        crossAxisAlignment: CrossAxisAlignment.end,
+                        children: [
+                          Text(
+                            "₪${debt.toStringAsFixed(1)}",
+                            style: GoogleFonts.cairo(
+                              fontSize: 18,
+                              fontWeight: FontWeight.w900,
+                              color: debt <= 0.01 ? Colors.green : Colors.redAccent,
+                            ),
+                          ),
+                          Text(
+                            "ديون المنطقة",
+                            style: GoogleFonts.cairo(color: Colors.white38, fontSize: 9),
+                          ),
+                        ],
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 8),
+                  const Divider(color: Colors.white10),
+                  Row(
+                    children: [
+                      const Icon(Icons.history, color: Colors.white24, size: 14),
+                      const SizedBox(width: 6),
+                      Text(
+                        _lastAreaPayments[area['id'].toString()] != null
+                            ? "آخر توريد: ${_lastAreaPayments[area['id'].toString()]}"
+                            : "لم يتم توريد دفعات",
+                        style: GoogleFonts.cairo(color: Colors.white38, fontSize: 10),
+                      ),
+                    ],
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildGlobalProfitCard() {
+    return Container(
+      padding: const EdgeInsets.all(24),
+      decoration: BoxDecoration(
+        gradient: const LinearGradient(
+          colors: [Color(0xFFD00030), Color(0xFF600010)],
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+        ),
+        borderRadius: BorderRadius.circular(24),
+        boxShadow: [
+          BoxShadow(color: const Color(0xFFD00030).withOpacity(0.3), blurRadius: 20, offset: const Offset(0, 8)),
+        ],
+      ),
+      child: Row(
+        children: [
+          Container(
+            padding: const EdgeInsets.all(16),
+            decoration: BoxDecoration(color: Colors.white.withOpacity(0.1), shape: BoxShape.circle),
+            child: const Icon(Icons.account_balance, color: Colors.white, size: 32),
+          ),
+          const SizedBox(width: 20),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  "إجمالي أرباح النظام (تراكمي)",
+                  style: GoogleFonts.cairo(color: Colors.white70, fontSize: 14),
+                ),
+                Text(
+                  "₪${_globalLifetimeProfit.toStringAsFixed(1)}",
+                  style: GoogleFonts.cairo(color: Colors.white, fontSize: 32, fontWeight: FontWeight.w900),
+                ),
+              ],
+            ),
+          ),
+          _buildAuditCenterButton(),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildAuditCenterButton() {
+    return InkWell(
+      onTap: _showGlobalAuditCenter,
+      borderRadius: BorderRadius.circular(16),
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+        decoration: BoxDecoration(
+          gradient: const LinearGradient(
+            colors: [Color(0xFFD00030), Color(0xFF900020)],
+            begin: Alignment.topLeft,
+            end: Alignment.bottomRight,
+          ),
+          borderRadius: BorderRadius.circular(16),
+          boxShadow: [
+            BoxShadow(color: const Color(0xFFD00030).withOpacity(0.3), blurRadius: 10, offset: const Offset(0, 4)),
+          ],
+        ),
+        child: Row(
+          children: [
+            const Icon(Icons.analytics_outlined, color: Colors.white, size: 20),
+            const SizedBox(width: 8),
+            Text(
+              "مركز الرقابة",
+              style: GoogleFonts.cairo(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 13),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  void _showGlobalAuditCenter() {
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: const Color(0xFF0F0F1A),
+      shape: const RoundedRectangleBorder(borderRadius: BorderRadius.vertical(top: Radius.circular(32))),
+      builder: (context) => DefaultTabController(
+        length: 3,
+        child: DraggableScrollableSheet(
+          initialChildSize: 0.9,
+          maxChildSize: 0.95,
+          minChildSize: 0.5,
+          expand: false,
+          builder: (context, scrollController) {
+            return Column(
+              children: [
+                const SizedBox(height: 12),
+                Container(width: 40, height: 4, decoration: BoxDecoration(color: Colors.white10, borderRadius: BorderRadius.circular(2))),
+                const SizedBox(height: 20),
+                TabBar(
+                  labelStyle: GoogleFonts.cairo(fontWeight: FontWeight.bold, fontSize: 14),
+                  indicatorColor: const Color(0xFFD00030),
+                  tabs: const [
+                    Tab(text: "سجل العمولات"),
+                    Tab(text: "سجل التحصيل"),
+                    Tab(text: "من الدائن؟"),
+                  ],
+                ),
+                Expanded(
+                  child: TabBarView(
+                    children: [
+                      _buildGlobalCommissionTab(scrollController),
+                      _buildGlobalPaymentsTab(scrollController),
+                      _buildGlobalDebtTab(scrollController),
+                    ],
+                  ),
+                ),
+              ],
+            );
+          },
+        ),
+      ),
+    );
+  }
+
+  Widget _buildGlobalCommissionTab(ScrollController scrollController) {
+    return FutureBuilder<List<Map<String, dynamic>>>(
+      future: _supabaseService.client.from('commission_change_logs').select('*, profiles(full_name), vendors(name)').order('created_at', ascending: false).limit(50),
+      builder: (context, snapshot) {
+        if (snapshot.connectionState == ConnectionState.waiting) return const Center(child: CircularProgressIndicator());
+        final logs = snapshot.data ?? [];
+        if (logs.isEmpty) return const Center(child: Text("لا يوجد سجلات", style: TextStyle(color: Colors.white38)));
+
+        return ListView.builder(
+          controller: scrollController,
+          padding: const EdgeInsets.all(20),
+          itemCount: logs.length,
+          itemBuilder: (context, index) {
+            final log = logs[index];
+            return _buildGlobalLogItem(log, isPayment: false);
+          },
+        );
+      },
+    );
+  }
+
+  Widget _buildGlobalPaymentsTab(ScrollController scrollController) {
+    return FutureBuilder<List<Map<String, dynamic>>>(
+      future: _supabaseService.client.from('vendor_payments').select('*, vendors(name)').order('paid_at', ascending: false).limit(50),
+      builder: (context, snapshot) {
+        if (snapshot.connectionState == ConnectionState.waiting) return const Center(child: CircularProgressIndicator());
+        final payments = snapshot.data ?? [];
+        if (payments.isEmpty) return const Center(child: Text("لا يوجد دفعات مسجلة", style: TextStyle(color: Colors.white38)));
+
+        return ListView.builder(
+          controller: scrollController,
+          padding: const EdgeInsets.all(20),
+          itemCount: payments.length,
+          itemBuilder: (context, index) {
+            final p = payments[index];
+            return _buildGlobalLogItem(p, isPayment: true);
+          },
+        );
+      },
+    );
+  }
+
+  Widget _buildGlobalLogItem(Map<String, dynamic> item, {required bool isPayment}) {
+    final title = isPayment ? (item['vendors']?['name'] ?? 'متجر') : "تعديل عمولة: ${item['vendors']?['name'] ?? 'متجر'}";
+    final subtitle = isPayment 
+        ? "دفع لشهر ${intl.DateFormat('MM/yyyy').format(DateTime.parse(item['payment_month']))}"
+        : "بواسطة: ${item['profiles']?['full_name'] ?? 'المدير'}";
+    
+    String time = "غير معروف";
+    try {
+      time = intl.DateFormat('yyyy/MM/dd HH:mm').format(DateTime.parse(isPayment ? item['paid_at'] : item['created_at']));
+    } catch (_) {}
+
+    return Container(
+      margin: const EdgeInsets.only(bottom: 12),
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: Colors.white.withOpacity(0.03),
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: Colors.white.withOpacity(0.05)),
+      ),
+      child: Row(
+        children: [
+          Container(
+            padding: const EdgeInsets.all(10),
+            decoration: BoxDecoration(
+              color: (isPayment ? Colors.green : Colors.orange).withOpacity(0.1),
+              shape: BoxShape.circle,
+            ),
+            child: Icon(isPayment ? Icons.payments_outlined : Icons.history, color: isPayment ? Colors.green : Colors.orange, size: 20),
+          ),
+          const SizedBox(width: 16),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(title, style: GoogleFonts.cairo(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 14)),
+                Text(subtitle, style: GoogleFonts.cairo(color: Colors.white38, fontSize: 11)),
+                Text(time, style: GoogleFonts.cairo(color: Colors.white24, fontSize: 10)),
+              ],
+            ),
+          ),
+          if (!isPayment)
+            Row(
+              children: [
+                Text("${item['old_rate']}%", style: const TextStyle(color: Colors.white24, fontSize: 11, decoration: TextDecoration.lineThrough)),
+                const Icon(Icons.arrow_forward, color: Colors.white38, size: 10),
+                Text("${item['new_rate']}%", style: const TextStyle(color: Color(0xFFD00030), fontWeight: FontWeight.bold, fontSize: 14)),
+              ],
+            )
+          else
+            const Icon(Icons.check_circle, color: Colors.green, size: 20),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildGlobalDebtTab(ScrollController scrollController) {
+    return FutureBuilder(
+      future: () async {
+        final visibleAreaIds = _areaStats.map((a) => a['id'].toString()).toList();
+        var query = _supabaseService.client
+            .from('vendors')
+            .select('name, current_balance, area_id, delivery_areas(name)')
+            .lt('current_balance', -0.1);
+
+        if (_currentUserProfile != null && _currentUserProfile!['role'] == 'supervisor') {
+          query = query.inFilter('area_id', visibleAreaIds);
+        }
+
+        return await query.order('current_balance', ascending: true);
+      }(),
+      builder: (context, snapshot) {
+        if (snapshot.connectionState == ConnectionState.waiting) {
+          return const Center(child: CircularProgressIndicator(color: Color(0xFFD00030)));
+        }
+        if (snapshot.hasError) return Center(child: Text("خطأ: ${snapshot.error}", style: const TextStyle(color: Colors.white54)));
+        
+        final debtors = List<Map<String, dynamic>>.from(snapshot.data as List);
+        if (debtors.isEmpty) {
+          return Center(
+            child: Column(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                Icon(Icons.check_circle_outline, color: Colors.green.withOpacity(0.5), size: 64),
+                const SizedBox(height: 16),
+                Text("لا يوجد ديون مستحقة حالياً", style: GoogleFonts.cairo(color: Colors.white38)),
+              ],
+            ),
+          );
+        }
+
+        return ListView.builder(
+          controller: scrollController,
+          itemCount: debtors.length,
+          padding: const EdgeInsets.all(20),
+          itemBuilder: (context, index) {
+            final debtor = debtors[index];
+            final balance = (double.tryParse(debtor['current_balance'].toString()) ?? 0).abs();
+            final areaName = debtor['delivery_areas']?['name'] ?? "منطقة غير معروفة";
+
+            return Container(
+              margin: const EdgeInsets.only(bottom: 12),
+              padding: const EdgeInsets.all(16),
+              decoration: BoxDecoration(
+                color: Colors.white.withOpacity(0.03),
+                borderRadius: BorderRadius.circular(20),
+                border: Border.all(color: Colors.white.withOpacity(0.05)),
+              ),
+              child: Row(
+                children: [
+                  Container(
+                    padding: const EdgeInsets.all(12),
+                    decoration: BoxDecoration(
+                      color: Colors.red.withOpacity(0.1),
+                      shape: BoxShape.circle,
+                    ),
+                    child: const Icon(Icons.money_off, color: Colors.redAccent, size: 20),
+                  ),
+                  const SizedBox(width: 16),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          debtor['name'] ?? "بدون اسم",
+                          style: GoogleFonts.cairo(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 15),
+                        ),
+                        Text(
+                          areaName,
+                          style: GoogleFonts.cairo(color: Colors.white38, fontSize: 11),
+                        ),
+                      ],
+                    ),
+                  ),
+                  Column(
+                    crossAxisAlignment: CrossAxisAlignment.end,
+                    children: [
+                      Text(
+                        "₪${balance.toStringAsFixed(1)}",
+                        style: GoogleFonts.cairo(color: Colors.redAccent, fontWeight: FontWeight.w900, fontSize: 16),
+                      ),
+                      Text(
+                        "دين مستحق",
+                        style: GoogleFonts.cairo(color: Colors.white24, fontSize: 9),
+                      ),
+                    ],
+                  ),
+                ],
+              ),
+            );
+          },
+        );
+      },
+    );
+  }
+}
+
+class AreaDetailScreen extends StatefulWidget {
+  final String areaId;
+  final dynamic rawAreaId;
+  final String areaName;
+  final Color baseColor;
+
+  const AreaDetailScreen({
+    super.key,
+    required this.areaId,
+    required this.rawAreaId,
+    required this.areaName,
+    required this.baseColor,
+  });
+
+  @override
+  State<AreaDetailScreen> createState() => _AreaDetailScreenState();
+}
+
+class _AreaDetailScreenState extends State<AreaDetailScreen> {
+  final _supabaseService = SupabaseService();
+  bool _isLoading = true;
+  bool _includeSubAreas = false;
+  Map<String, dynamic>? _supervisor;
+  List<Map<String, dynamic>> _vendors = [];
+  List<Map<String, dynamic>> _subAreas = [];
+  List<Map<String, dynamic>> _logs = [];
+  double _totalRevenue = 0;
+  Map<String, dynamic> _stats = {};
+  Map<String, Map<String, double>> _areaBreakdown = {};
+  List<Map<String, dynamic>> _allAreasList = [];
+  DateTimeRange? _dateRange;
+  double _totalPaidInArea = 0.0;
+  double _totalPaidInAreaLifetime = 0.0;
+  final TextEditingController _searchController = TextEditingController();
+
+  @override
+  void dispose() {
+    _searchController.dispose();
+    super.dispose();
+  }
+
+  @override
+  void initState() {
+    super.initState();
+    _loadDetailData();
+  }
+
+  Future<void> _loadDetailData({bool silent = false}) async {
+    if (!mounted) return;
+    if (!silent) setState(() => _isLoading = true);
+    try {
+      final currentAreaId = widget.rawAreaId;
+      final allRelevantAreaIds = await _supabaseService.getRecursiveSubAreaIds(currentAreaId.toString());
+      final allAreasRes = await _supabaseService.getDeliveryAreas();
+
+      final results = await Future.wait([
+        _supabaseService.client.from('profiles').select().eq('assigned_area_id', currentAreaId).eq('role', 'supervisor').limit(1),
+        _supabaseService.client.from('vendors').select('*, profiles:owner_id(full_name, phone)'),
+        _supabaseService.client.from('commission_change_logs').select('*, vendors(name), profiles:changed_by(full_name)').order('created_at', ascending: false),
+        _supabaseService.client.from('orders').select('subtotal, commission_rate, vendor_id, vendors(name, area_id)').eq('status', 'delivered'),
+        _supabaseService.client.from('vendor_payment_records').select('amount, created_at, vendor_id, vendors(area_id)'),
+      ]);
+
+      final supervisorRes = (results[0] as List).isNotEmpty ? results[0].first : null;
+      final List<Map<String, dynamic>> allVendorsRaw = List<Map<String, dynamic>>.from(results[1] as List);
+      final List<Map<String, dynamic>> allLogsRaw = List<Map<String, dynamic>>.from(results[2] as List);
+      final List<Map<String, dynamic>> allOrdersRaw = List<Map<String, dynamic>>.from(results[3] as List);
+      final List<Map<String, dynamic>> allPaymentsRaw = List<Map<String, dynamic>>.from(results[4] as List);
+
+      List<Map<String, dynamic>> filteredVendors = allVendorsRaw.where((v) => _includeSubAreas ? allRelevantAreaIds.contains(v['area_id']?.toString()) : v['area_id']?.toString() == currentAreaId.toString()).toList();
+      
+      double rev = 0;
+      double totalComm = 0;
+      Map<String, Map<String, double>> breakdown = {};
+      for (var aid in allRelevantAreaIds) {
+        breakdown[aid] = {'rev': 0.0, 'prof': 0.0, 'paid': 0.0};
+      }
+
+      for (var o in allOrdersRaw) {
+        final aid = o['vendors']?['area_id']?.toString();
+        if (_includeSubAreas ? allRelevantAreaIds.contains(aid) : aid == currentAreaId.toString()) {
+          double sub = (o['subtotal'] as num? ?? 0).toDouble();
+          double rate = (o['commission_rate'] as num? ?? 2.0).toDouble();
+          double prof = (sub * rate / 100);
+          rev += sub;
+          totalComm += prof;
+          if (aid != null && breakdown.containsKey(aid)) {
+            breakdown[aid]!['rev'] = (breakdown[aid]!['rev'] ?? 0) + sub;
+            breakdown[aid]!['prof'] = (breakdown[aid]!['prof'] ?? 0) + prof;
+          }
+        }
+      }
+
+      double totalPaidF = 0;
+      double totalPaidL = 0;
+      for (var p in allPaymentsRaw) {
+        final aid = p['vendors']?['area_id']?.toString();
+        if (_includeSubAreas ? allRelevantAreaIds.contains(aid) : aid == currentAreaId.toString()) {
+          double amt = (p['amount'] as num? ?? 0).toDouble();
+          totalPaidL += amt;
+          if (aid != null && breakdown.containsKey(aid)) {
+            breakdown[aid]!['paid'] = (breakdown[aid]!['paid'] ?? 0) + amt;
+          }
+        }
+      }
+
+      if (mounted) {
+        setState(() {
+          _areaBreakdown = breakdown;
+          _allAreasList = List<Map<String, dynamic>>.from(allAreasRes);
+          _supervisor = supervisorRes;
+          _vendors = filteredVendors;
+          _subAreas = (allAreasRes as List).where((a) => a['parent_id']?.toString() == currentAreaId.toString()).toList().cast<Map<String, dynamic>>();
+          _logs = allLogsRaw.where((l) => _includeSubAreas ? allRelevantAreaIds.contains(l['area_id']?.toString()) : l['area_id']?.toString() == currentAreaId.toString()).toList();
+          _totalRevenue = rev;
+          _totalPaidInAreaLifetime = totalPaidL;
+          _stats = {'total_profit': totalComm};
+          _isLoading = false;
+        });
+      }
+    } catch (e) {
+      debugPrint("Error: $e");
+      if (mounted) setState(() => _isLoading = false);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      backgroundColor: const Color(0xFF0F0F1A),
+      body: _isLoading 
+        ? const Center(child: CircularProgressIndicator())
+        : CustomScrollView(
+            slivers: [
+              SliverAppBar(
+                expandedHeight: 200, pinned: true, backgroundColor: const Color(0xFF0F0F1A),
+                flexibleSpace: FlexibleSpaceBar(
+                  title: Text(widget.areaName, style: GoogleFonts.cairo(fontWeight: FontWeight.bold)),
+                  background: Container(decoration: BoxDecoration(gradient: LinearGradient(colors: [widget.baseColor, const Color(0xFF0F0F1A)], begin: Alignment.topLeft, end: Alignment.bottomRight))),
+                ),
+                actions: [
+                  IconButton(icon: const Icon(Icons.analytics_outlined), onPressed: _showAreaAuditCenter),
+                ],
+              ),
+              SliverToBoxAdapter(
+                child: Padding(
+                  padding: const EdgeInsets.all(16),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      _buildQuickStatsRow(),
+                      const SizedBox(height: 20),
+                      _buildSectionTitle("المتاجر"),
+                      ..._vendors.map((v) => _buildVendorItem(v)).toList(),
+                    ],
+                  ),
+                ),
+              ),
+            ],
+          ),
+    );
+  }
+
+  Widget _buildQuickStatsRow() {
+    return Row(
+      children: [
+        Expanded(child: _buildStatMiniCard("إجمالي الإيرادات", "₪${_totalRevenue.toStringAsFixed(0)}", Icons.payments, Colors.blue)),
+        const SizedBox(width: 12),
+        Expanded(child: _buildStatMiniCard("الربح المحقق", "₪${(_stats['total_profit'] ?? 0).toStringAsFixed(0)}", Icons.account_balance, Colors.green)),
+      ],
+    );
+  }
+
+  Widget _buildStatMiniCard(String label, String value, IconData icon, Color color) {
+    return Container(
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(color: const Color(0xFF1E1E2C), borderRadius: BorderRadius.circular(16)),
+      child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+        Icon(icon, color: color, size: 20),
+        const SizedBox(height: 8),
+        Text(label, style: GoogleFonts.cairo(color: Colors.white38, fontSize: 10)),
+        Text(value, style: GoogleFonts.cairo(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 14)),
+      ]),
+    );
+  }
+
+  Widget _buildSectionTitle(String title) {
+    return Padding(padding: const EdgeInsets.only(bottom: 12), child: Text(title, style: GoogleFonts.cairo(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 16)));
+  }
+
+  Widget _buildVendorItem(Map<String, dynamic> v) {
+    final balance = (v['current_balance'] as num? ?? 0).toDouble();
+    final isPaid = balance >= -0.1;
+    return GestureDetector(
+      onTap: () => _openVendorFinanceSheet(v),
+      child: Container(
+        margin: const EdgeInsets.only(bottom: 12),
+        padding: const EdgeInsets.all(16),
+        decoration: BoxDecoration(color: const Color(0xFF161625), borderRadius: BorderRadius.circular(16), border: Border.all(color: (isPaid ? Colors.green : Colors.red).withOpacity(0.1))),
+        child: Row(
+          children: [
+            Container(width: 40, height: 40, decoration: BoxDecoration(color: Colors.white10, borderRadius: BorderRadius.circular(8)), child: const Icon(Icons.store, color: Colors.white38)),
+            const SizedBox(width: 12),
+            Expanded(child: Text(v['name'] ?? "", style: GoogleFonts.cairo(color: Colors.white, fontWeight: FontWeight.bold))),
+            Text("₪${balance.abs().toStringAsFixed(1)}", style: GoogleFonts.cairo(color: isPaid ? Colors.green : Colors.red, fontWeight: FontWeight.bold)),
+          ],
+        ),
+      ),
+    );
+  }
+
+  void _openVendorFinanceSheet(Map<String, dynamic> vendor) {
+    showModalBottomSheet(
+      context: context, isScrollControlled: true, backgroundColor: const Color(0xFF0F0F1A),
+      shape: const RoundedRectangleBorder(borderRadius: BorderRadius.vertical(top: Radius.circular(32))),
+      builder: (context) => _VendorFinanceSheet(vendor: vendor, baseColor: widget.baseColor, onRefresh: _loadDetailData),
+    );
+  }
+
+  void _showAreaAuditCenter() {
+    showModalBottomSheet(
+      context: context, isScrollControlled: true, backgroundColor: const Color(0xFF0F0F1A),
+      shape: const RoundedRectangleBorder(borderRadius: BorderRadius.vertical(top: Radius.circular(32))),
+      builder: (context) => DefaultTabController(
+        length: 2,
+        child: DraggableScrollableSheet(
+          initialChildSize: 0.9, maxChildSize: 0.95, minChildSize: 0.5, expand: false,
+          builder: (context, sc) => Column(children: [
+            const SizedBox(height: 12), Container(width: 40, height: 4, decoration: BoxDecoration(color: Colors.white10, borderRadius: BorderRadius.circular(2))),
+            TabBar(tabs: [Tab(text: "سجل العمليات"), Tab(text: "توزيع المناطق")]),
+            Expanded(child: TabBarView(children: [_buildCombinedLogs(sc), _buildBreakdownTab(sc)])),
+          ]),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildCombinedLogs(ScrollController sc) {
+    return ListView.builder(controller: sc, itemCount: _logs.length, padding: const EdgeInsets.all(20), itemBuilder: (context, index) {
+      final l = _logs[index];
+      return ListTile(title: Text(l['vendors']?['name'] ?? ""), subtitle: Text(l['created_at']));
+    });
+  }
+
+  Widget _buildBreakdownTab(ScrollController sc) {
+    final entries = _areaBreakdown.entries.toList();
+    return ListView.builder(controller: sc, itemCount: entries.length, padding: const EdgeInsets.all(20), itemBuilder: (context, index) {
+      final e = entries[index];
+      return ListTile(title: Text(e.key), trailing: Text("₪${e.value['rev']?.toStringAsFixed(0)}"));
+    });
+  }
+}
+
+class _VendorFinanceSheet extends StatefulWidget {
+  final Map<String, dynamic> vendor;
+  final Color baseColor;
+  final VoidCallback? onRefresh;
+  const _VendorFinanceSheet({required this.vendor, required this.baseColor, this.onRefresh});
+  @override
+  State<_VendorFinanceSheet> createState() => _VendorFinanceSheetState();
+}
+
+class _VendorFinanceSheetState extends State<_VendorFinanceSheet>
+    with SingleTickerProviderStateMixin {
+  final _supabaseService = SupabaseService();
+  late TabController _tabController;
+  List<Map<String, dynamic>> _paymentRecords = [];
+  List<Map<String, dynamic>> _commissionLogs = [];
+  bool _isLoading = true;
+  bool _isAddingPayment = false;
+  late double currentBalance;
+
+  @override
+  void initState() {
+    super.initState();
+    _tabController = TabController(length: 2, vsync: this);
+    currentBalance = (widget.vendor['current_balance'] as num? ?? 0).toDouble();
+    _loadData();
+  }
+
+  @override
+  void dispose() {
+    _tabController.dispose();
+    super.dispose();
+  }
+
+  Future<void> _loadData() async {
+    if (mounted) setState(() => _isLoading = true);
+    try {
+      final vendorId = widget.vendor['id'].toString();
+      final results = await Future.wait([
+        _supabaseService.getVendorPaymentRecords(vendorId),
+        _supabaseService.client
+            .from('commission_change_logs')
+            .select('*, profiles(full_name)')
+            .eq('vendor_id', vendorId)
+            .order('created_at', ascending: false),
+      ]);
+      if (mounted) {
+        setState(() {
+          _paymentRecords = results[0] as List<Map<String, dynamic>>;
+          _commissionLogs = List<Map<String, dynamic>>.from(results[1] as List);
+          _isLoading = false;
+        });
+      }
+    } catch (e) {
+      debugPrint("Error loading vendor finance: $e");
+      if (mounted) setState(() => _isLoading = false);
+    }
+  }
+
+  Future<void> _addPaymentRecord() async {
+    final picked = await showDatePicker(
+      context: context,
+      initialDate: DateTime.now(),
+      firstDate: DateTime(2023),
+      lastDate: DateTime.now(),
+      builder: (context, child) => Theme(
+        data: ThemeData.dark().copyWith(
+          colorScheme: ColorScheme.dark(
+            primary: widget.baseColor,
+            onPrimary: Colors.white,
+            surface: const Color(0xFF1E1E2C),
+            onSurface: Colors.white,
+          ),
+        ),
+        child: child!,
+      ),
+    );
+    if (picked == null || !mounted) return;
+
+    String? notes;
+    double amount = 0;
+    final notesController = TextEditingController();
+    final amountController = TextEditingController();
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        backgroundColor: const Color(0xFF1E1E2C),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+        title: Text("إضافة دفعة", style: GoogleFonts.cairo(color: Colors.white, fontWeight: FontWeight.bold)),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                const Icon(Icons.calendar_today, color: Colors.white38, size: 16),
+                const SizedBox(width: 8),
+                Text(
+                  intl.DateFormat('yyyy/MM/dd').format(picked),
+                  style: GoogleFonts.cairo(color: Colors.white70, fontSize: 14),
+                ),
+              ],
+            ),
+            const SizedBox(height: 20),
+            Text("المبلغ المدفوع (شيكل)", style: GoogleFonts.cairo(color: Colors.white70, fontSize: 13, fontWeight: FontWeight.bold)),
+            const SizedBox(height: 8),
+            Text(
+              "أقصى مبلغ مسموح به (قيمة الدين): ₪${(currentBalance < 0 ? currentBalance.abs() : 0).toStringAsFixed(1)}",
+              style: GoogleFonts.cairo(color: Colors.orangeAccent, fontSize: 11),
+            ),
+            const SizedBox(height: 8),
+            TextField(
+              controller: amountController,
+              keyboardType: const TextInputType.numberWithOptions(decimal: true),
+              style: GoogleFonts.cairo(color: Colors.white, fontWeight: FontWeight.bold),
+              autofocus: true,
+              decoration: InputDecoration(
+                prefixText: "₪ ",
+                prefixStyle: const TextStyle(color: Colors.green),
+                hintText: "مثلاً: 150",
+                hintStyle: GoogleFonts.cairo(color: Colors.white24),
+                filled: true,
+                fillColor: Colors.white.withOpacity(0.05),
+                border: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: BorderSide.none),
+                focusedBorder: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(12),
+                  borderSide: BorderSide(color: widget.baseColor),
+                ),
+              ),
+            ),
+            const SizedBox(height: 16),
+            TextField(
+              controller: notesController,
+              style: GoogleFonts.cairo(color: Colors.white),
+              decoration: InputDecoration(
+                hintText: "ملاحظة (اختياري)",
+                hintStyle: GoogleFonts.cairo(color: Colors.white38),
+                border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
+                enabledBorder: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(12),
+                  borderSide: const BorderSide(color: Colors.white12),
+                ),
+                focusedBorder: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(12),
+                  borderSide: BorderSide(color: widget.baseColor),
+                ),
+              ),
+            ),
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: Text("إلغاء", style: GoogleFonts.cairo(color: Colors.white38)),
+          ),
+          ElevatedButton(
+            style: ElevatedButton.styleFrom(
+              backgroundColor: widget.baseColor,
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+            ),
+            onPressed: () {
+              notes = notesController.text.trim().isEmpty ? null : notesController.text.trim();
+              final amountStr = amountController.text.trim();
+              if (amountStr.isEmpty) {
+                 ScaffoldMessenger.of(ctx).showSnackBar(const SnackBar(content: Text("يرجى إدخال المبلغ")));
+                 return;
+              }
+              amount = double.tryParse(amountStr) ?? 0;
+              
+              final currentDebt = currentBalance < 0 ? currentBalance.abs() : 0.0;
+              
+              if (amount > currentDebt + 0.05) { 
+                ScaffoldMessenger.of(ctx).showSnackBar(SnackBar(
+                  backgroundColor: Colors.redAccent,
+                  content: Text("عذراً، لا يمكن تجاوز قيمة الدين (₪${currentDebt.toStringAsFixed(1)})", style: GoogleFonts.cairo(fontWeight: FontWeight.bold)),
+                ));
+                return;
+              }
+              Navigator.pop(ctx, true);
+            },
+            child: Text("تسجيل الدفعة", style: GoogleFonts.cairo(color: Colors.white, fontWeight: FontWeight.bold)),
+          ),
+        ],
+      ),
+    );
+
+    if (confirmed != true || !mounted) return;
+
+    setState(() => _isAddingPayment = true);
+    try {
+      await _supabaseService.addVendorPaymentRecord(
+        widget.vendor['id'].toString(),
+        picked,
+        amount: amount,
+        notes: notes,
+      );
+      
+      setState(() {
+        currentBalance += amount;
+      });
+
+      await _loadData();
+      widget.onRefresh?.call();
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text("خطأ: $e")));
+      }
+    }
+    if (mounted) setState(() => _isAddingPayment = false);
+  }
+
+  Future<void> _deleteRecord(String recordId) async {
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        backgroundColor: const Color(0xFF1E1E2C),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+        title: Text("حذف الدفعة", style: GoogleFonts.cairo(color: Colors.white, fontWeight: FontWeight.bold)),
+        content: Text("هل تريد حذف هذا السجل؟", style: GoogleFonts.cairo(color: Colors.white70)),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(ctx, false), child: Text("إلغاء", style: GoogleFonts.cairo(color: Colors.white38))),
+          ElevatedButton(
+            style: ElevatedButton.styleFrom(backgroundColor: Colors.red),
+            onPressed: () => Navigator.pop(ctx, true),
+            child: Text("حذف", style: GoogleFonts.cairo(color: Colors.white)),
+          ),
+        ],
+      ),
+    );
+    if (ok != true) return;
+    try {
+      final record = _paymentRecords.firstWhere((r) => r['id'].toString() == recordId);
+      final amount = double.tryParse(record['amount'].toString()) ?? 0;
+      await _supabaseService.deleteVendorPaymentRecord(recordId);
+      setState(() {
+        currentBalance -= amount;
+      });
+      await _loadData();
+      widget.onRefresh?.call();
+    } catch (e) {
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text("خطأ: $e")));
+    }
+  }
+
+  String? get _lastPaymentDate {
+    if (_paymentRecords.isEmpty) return null;
+    return _paymentRecords.first['payment_date'];
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final v = widget.vendor;
+    final screenH = MediaQuery.of(context).size.height;
+    final screenW = MediaQuery.of(context).size.width;
+    final isSmall = screenW < 360;
+
+    return DraggableScrollableSheet(
+      initialChildSize: screenH < 700 ? 0.97 : 0.92,
+      maxChildSize: 0.97,
+      minChildSize: 0.4,
+      expand: false,
+      builder: (context, scrollController) {
+        return Column(
+          children: [
+            const SizedBox(height: 12),
+            Container(width: 40, height: 4, decoration: BoxDecoration(color: Colors.white10, borderRadius: BorderRadius.circular(2))),
+            const SizedBox(height: 16),
+            Padding(
+              padding: EdgeInsets.symmetric(horizontal: isSmall ? 12 : 16),
+              child: Container(
+                padding: EdgeInsets.all(isSmall ? 12 : 16),
+                decoration: BoxDecoration(
+                  color: widget.baseColor.withOpacity(0.08),
+                  borderRadius: BorderRadius.circular(20),
+                  border: Border.all(color: widget.baseColor.withOpacity(0.2)),
+                ),
+                child: Row(
+                  children: [
+                    Container(
+                      width: isSmall ? 46 : 54,
+                      height: isSmall ? 46 : 54,
+                      decoration: BoxDecoration(
+                        borderRadius: BorderRadius.circular(12),
+                        image: v['logo_url'] != null
+                            ? DecorationImage(image: NetworkImage(v['logo_url']), fit: BoxFit.cover)
+                            : null,
+                        color: Colors.white10,
+                      ),
+                      child: v['logo_url'] == null ? Icon(Icons.store, color: Colors.white38, size: isSmall ? 22 : 28) : null,
+                    ),
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(v['name']?.toString() ?? "", style: GoogleFonts.cairo(color: Colors.white, fontWeight: FontWeight.bold, fontSize: isSmall ? 14 : 16)),
+                          Text("المالك: ${v['profiles']?['full_name'] ?? 'غير معروف'}", style: GoogleFonts.cairo(color: Colors.white54, fontSize: 11)),
+                          if (v['profiles']?['phone'] != null)
+                            Text(v['profiles']['phone'], style: const TextStyle(color: Colors.white38, fontSize: 10)),
+                        ],
+                      ),
+                    ),
+                    Column(
+                      crossAxisAlignment: CrossAxisAlignment.end,
+                      children: [
+                        Text("${v['commission_rate']}%", style: GoogleFonts.cairo(color: widget.baseColor, fontWeight: FontWeight.bold, fontSize: isSmall ? 18 : 22)),
+                        Text("عمولة", style: GoogleFonts.cairo(color: Colors.white38, fontSize: 10)),
+                        const SizedBox(height: 4),
+                        Text("الرصيد الحالي", style: GoogleFonts.cairo(color: Colors.white38, fontSize: 10)),
+                        Text(
+                          currentBalance >= 0 
+                              ? "₪${currentBalance.toStringAsFixed(1)}"
+                              : "₪${currentBalance.abs().toStringAsFixed(1)} (دين)",
+                          style: GoogleFonts.cairo(
+                            color: currentBalance >= 0 ? Colors.green : Colors.redAccent,
+                            fontWeight: FontWeight.bold,
+                            fontSize: 13,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ],
+                ),
+              ),
+            ),
+            const SizedBox(height: 12),
+
+            // ── Last Payment + Add Button Row ───────────────────────────
+            Padding(
+              padding: EdgeInsets.symmetric(horizontal: isSmall ? 12 : 16),
+              child: Row(
+                children: [
+                  Expanded(
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+                      decoration: BoxDecoration(
+                        color: Colors.white.withOpacity(0.04),
+                        borderRadius: BorderRadius.circular(14),
+                        border: Border.all(color: Colors.white.withOpacity(0.08)),
+                      ),
+                      child: Row(
+                        children: [
+                          Icon(
+                            _lastPaymentDate != null ? Icons.check_circle : Icons.schedule,
+                            color: _lastPaymentDate != null ? Colors.green : Colors.white24,
+                            size: 18,
+                          ),
+                          const SizedBox(width: 8),
+                          Expanded(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Text("آخر دفعة", style: GoogleFonts.cairo(color: Colors.white38, fontSize: 10)),
+                                Text(
+                                  _lastPaymentDate != null
+                                      ? intl.DateFormat('yyyy/MM/dd').format(DateTime.parse(_lastPaymentDate!))
+                                      : "لا يوجد سجل دفعات",
+                                  style: GoogleFonts.cairo(
+                                    color: _lastPaymentDate != null ? Colors.white : Colors.white24,
+                                    fontWeight: FontWeight.bold,
+                                    fontSize: 13,
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+                  const SizedBox(width: 10),
+                  GestureDetector(
+                    onTap: _isAddingPayment ? null : _addPaymentRecord,
+                    child: AnimatedContainer(
+                      duration: const Duration(milliseconds: 200),
+                      padding: EdgeInsets.symmetric(horizontal: isSmall ? 12 : 16, vertical: 10),
+                      decoration: BoxDecoration(
+                        gradient: LinearGradient(
+                          colors: [widget.baseColor, widget.baseColor.withOpacity(0.7)],
+                          begin: Alignment.topLeft,
+                          end: Alignment.bottomRight,
+                        ),
+                        borderRadius: BorderRadius.circular(14),
+                        boxShadow: [BoxShadow(color: widget.baseColor.withOpacity(0.3), blurRadius: 8, offset: const Offset(0, 3))],
+                      ),
+                      child: _isAddingPayment
+                          ? const SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white))
+                          : Row(
+                              children: [
+                                const Icon(Icons.add, color: Colors.white, size: 18),
+                                const SizedBox(width: 4),
+                                Text("تسجيل دفعة", style: GoogleFonts.cairo(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 12)),
+                              ],
+                            ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            const SizedBox(height: 12),
+
+            // ── Tabs ───────────────────────────────────────────────────
+            TabBar(
+              controller: _tabController,
+              labelStyle: GoogleFonts.cairo(fontWeight: FontWeight.bold, fontSize: isSmall ? 12 : 13),
+              indicatorColor: widget.baseColor,
+              tabs: [
+                Tab(text: "سجل الدفعات (${_paymentRecords.length})"),
+                Tab(text: "سجل العمولات"),
+              ],
+            ),
+
+            // ── Tab Content ────────────────────────────────────────────
+            Expanded(
+              child: _isLoading
+                  ? const Center(child: CircularProgressIndicator())
+                  : TabBarView(
+                      controller: _tabController,
+                      children: [
+                        _buildPaymentsTab(scrollController),
+                        _buildCommissionTab(scrollController),
+                      ],
+                    ),
+            ),
+          ],
+        );
+      },
+    );
+  }
+
+  Widget _buildPaymentsTab(ScrollController sc) {
+    if (_paymentRecords.isEmpty) {
+      return Center(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const Icon(Icons.payments_outlined, color: Colors.white12, size: 64),
+            const SizedBox(height: 16),
+            Text("لا يوجد دفعات مسجلة بعد", style: GoogleFonts.cairo(color: Colors.white38, fontSize: 15)),
+            const SizedBox(height: 8),
+            Text("اضغط \"تسجيل دفعة\" لإضافة أول دفعة", style: GoogleFonts.cairo(color: Colors.white24, fontSize: 12)),
+          ],
+        ),
+      );
+    }
+
+    return ListView.builder(
+      controller: sc,
+      padding: const EdgeInsets.fromLTRB(16, 16, 16, 80),
+      itemCount: _paymentRecords.length,
+      itemBuilder: (context, index) {
+        final p = _paymentRecords[index];
+        final dateStr = p['payment_date'] ?? '';
+        String formattedDate = dateStr;
+        String dayName = '';
+        try {
+          final d = DateTime.parse(dateStr);
+          formattedDate = intl.DateFormat('dd MMMM yyyy', 'ar').format(d);
+          dayName = intl.DateFormat('EEEE', 'ar').format(d);
+        } catch (_) {}
+        final notes = p['notes'];
+
+        return Dismissible(
+          key: Key(p['id'].toString()),
+          direction: DismissDirection.startToEnd,
+          background: Container(
+            margin: const EdgeInsets.only(bottom: 10),
+            decoration: BoxDecoration(color: Colors.red.withOpacity(0.2), borderRadius: BorderRadius.circular(14)),
+            alignment: Alignment.centerLeft,
+            padding: const EdgeInsets.only(left: 20),
+            child: const Icon(Icons.delete_outline, color: Colors.red),
+          ),
+          confirmDismiss: (_) async {
+            await _deleteRecord(p['id'].toString());
+            return false; // we handle deletion ourselves
+          },
+          child: Container(
+            margin: const EdgeInsets.only(bottom: 10),
+            padding: const EdgeInsets.all(14),
+            decoration: BoxDecoration(
+              color: Colors.green.withOpacity(0.05),
+              borderRadius: BorderRadius.circular(14),
+              border: Border.all(color: Colors.green.withOpacity(0.2)),
+            ),
+            child: Row(
+              children: [
+                // Timeline dot
+                Column(
+                  children: [
+                    Container(
+                      width: 36, height: 36,
+                      decoration: BoxDecoration(color: Colors.green.withOpacity(0.15), shape: BoxShape.circle),
+                      child: const Icon(Icons.payments_outlined, color: Colors.green, size: 18),
+                    ),
+                  ],
+                ),
+                const SizedBox(width: 14),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(formattedDate, style: GoogleFonts.cairo(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 14)),
+                      Text(dayName, style: GoogleFonts.cairo(color: Colors.white38, fontSize: 11)),
+                      if (notes != null && notes.isNotEmpty)
+                        Padding(
+                          padding: const EdgeInsets.only(top: 4),
+                          child: Text(notes, style: GoogleFonts.cairo(color: Colors.white54, fontSize: 11, fontStyle: FontStyle.italic)),
+                        ),
+                    ],
+                  ),
+                ),
+                 Column(
+                  crossAxisAlignment: CrossAxisAlignment.end,
+                  children: [
+                    Text("₪${p['amount']}", style: GoogleFonts.cairo(color: Colors.green, fontWeight: FontWeight.bold, fontSize: 16)),
+                    const Icon(Icons.check_circle, color: Colors.green, size: 16),
+                  ],
+                ),
+              ],
+            ),
+          ),
+        );
+      },
+    );
+  }
+
+  Widget _buildCommissionTab(ScrollController sc) {
+    if (_commissionLogs.isEmpty) {
+      return Center(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const Icon(Icons.history, color: Colors.white12, size: 64),
+            const SizedBox(height: 16),
+            Text("لا يوجد تغييرات على العمولة", style: GoogleFonts.cairo(color: Colors.white38, fontSize: 15)),
+            Text("العمولة الحالية: ${widget.vendor['commission_rate']}%", style: GoogleFonts.cairo(color: widget.baseColor, fontWeight: FontWeight.bold, fontSize: 13)),
+          ],
+        ),
+      );
+    }
+
+    return ListView.builder(
+      controller: sc,
+      padding: const EdgeInsets.all(16),
+      itemCount: _commissionLogs.length,
+      itemBuilder: (context, index) {
+        final log = _commissionLogs[index];
+        String time = "";
+        try {
+          time = intl.DateFormat('yyyy/MM/dd HH:mm').format(DateTime.parse(log['created_at']));
+        } catch (_) {}
+
+        return Container(
+          margin: const EdgeInsets.only(bottom: 10),
+          padding: const EdgeInsets.all(14),
+          decoration: BoxDecoration(
+            color: Colors.orange.withOpacity(0.04),
+            borderRadius: BorderRadius.circular(14),
+            border: Border.all(color: Colors.orange.withOpacity(0.12)),
+          ),
+          child: Row(
+            children: [
+              Container(
+                padding: const EdgeInsets.all(8),
+                decoration: BoxDecoration(color: Colors.orange.withOpacity(0.1), shape: BoxShape.circle),
+                child: const Icon(Icons.percent, color: Colors.orange, size: 18),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text("بواسطة: ${log['profiles']?['full_name'] ?? 'مدير'}", style: GoogleFonts.cairo(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 13)),
+                    Text(time, style: GoogleFonts.cairo(color: Colors.white38, fontSize: 11)),
+                  ],
+                ),
+              ),
+              Row(
+                children: [
+                  Text("${log['old_rate']}%", style: const TextStyle(color: Colors.white24, fontSize: 13, decoration: TextDecoration.lineThrough)),
+                  const Padding(
+                    padding: EdgeInsets.symmetric(horizontal: 6),
+                    child: Icon(Icons.arrow_forward, color: Colors.white38, size: 14),
+                  ),
+                  Text("${log['new_rate']}%", style: TextStyle(color: widget.baseColor, fontWeight: FontWeight.bold, fontSize: 16)),
+                ],
+              ),
+            ],
+          ),
+        );
+      },
+    );
+  }
+
+
+
+}
+
+class _HeaderPatternPainter extends CustomPainter {
+  final Color color;
+  _HeaderPatternPainter({required this.color});
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final paint = Paint()
+      ..color = color.withOpacity(0.05)
+      ..strokeWidth = 1.0
+      ..style = PaintingStyle.stroke;
+
+    const spacing = 20.0;
+    for (double i = -size.height; i < size.width; i += spacing) {
+      canvas.drawLine(Offset(i, 0), Offset(i + size.height, size.height), paint);
+    }
+  }
+
+  @override
+  bool shouldRepaint(covariant CustomPainter oldDelegate) => false;
+}
+
+class _SliverAppBarDelegate extends SliverPersistentHeaderDelegate {
+  _SliverAppBarDelegate(this._tabBar);
+
+  final TabBar _tabBar;
+
+  @override
+  double get minExtent => _tabBar.preferredSize.height;
+  @override
+  double get maxExtent => _tabBar.preferredSize.height;
+
+  @override
+  Widget build(
+      BuildContext context, double shrinkOffset, bool overlapsContent) {
+    return Container(
+      color: const Color(0xFF1A1A2E),
+      child: _tabBar,
+    );
+  }
+
+  @override
+  bool shouldRebuild(_SliverAppBarDelegate oldDelegate) {
+    return false;
+  }
+}
+
+

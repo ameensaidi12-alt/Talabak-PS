@@ -1,0 +1,47 @@
+{
+  "project_info": {
+    "project_number": "1072349230592",
+    "project_id": "astra-be847",
+    "storage_bucket": "astra-be847.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:1072349230592:android:664c96de4d867c2aba8ae5",
+        "android_client_info": {
+          "package_name": "com.astra.talabak.galaxy"
+        }
+      },
+      "oauth_client": [
+        {
+          "client_id": "1072349230592-agbamisapi60k8r4upsbrtu8rg80jina.apps.googleusercontent.com",
+          "client_type": 1,
+          "android_info": {
+            "package_name": "com.astra.talabak.galaxy",
+            "certificate_hash": "8cb905c6c308a8e8f2b32bba70f6bf6e42b82125"
+          }
+        },
+        {
+          "client_id": "1072349230592-nng3ok1rggr78djniqib30pecpt7t148.apps.googleusercontent.com",
+          "client_type": 3
+        }
+      ],
+      "api_key": [
+        {
+          "current_key": "AIzaSyDCcw6dDWD88Dc8WLk8EyJ0oE7gEzsjXRc"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": [
+            {
+              "client_id": "1072349230592-nng3ok1rggr78djniqib30pecpt7t148.apps.googleusercontent.com",
+              "client_type": 3
+            }
+          ]
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

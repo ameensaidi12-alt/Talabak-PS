@@ -1,0 +1,15 @@
+flutter_launcher_icons:
+  android: true
+  ios: true
+  
+  # Base image for legacy/fallback
+  image_path: "assets/images/Golden _T_ with flame design.png"
+  
+  # Adaptive Icons (MANDATORY for modern Android to avoid white borders)
+  # We use the same full-bleed image as the foreground layer
+  adaptive_icon_background: "#1A1A1A" # Dark Premium Background
+  adaptive_icon_foreground: "assets/images/Golden _T_ with flame design.png"
+  adaptive_icon_foreground_inset: 22
+  
+  min_sdk_android: 21
+  remove_alpha_ios: true

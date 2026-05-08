@@ -1,0 +1,242 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Talabak PS | طلب حذف الحساب</title>
+    <!-- Fonts -->
+    <link href="https://fonts.googleapis.com/css2?family=Cairo:wght@400;600;700;900&display=swap" rel="stylesheet">
+    <!-- Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- React & Motion -->
+    <script src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+    <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+    <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+    <script src="https://unpkg.com/framer-motion@10.16.4/dist/framer-motion.js"></script>
+    <!-- Lucide Icons -->
+    <script src="https://unpkg.com/lucide@latest"></script>
+
+    <script>
+        tailwind.config = {
+            theme: {
+                extend: {
+                    colors: {
+                        primary: '#FFD700',
+                        dark: '#050505',
+                        surface: '#0F0F0F',
+                    },
+                    fontFamily: {
+                        cairo: ['Cairo', 'sans-serif'],
+                    },
+                }
+            }
+        }
+    </script>
+    <style>
+        body {
+            background-color: #0c0c0c;
+            color: #ffffff;
+            -webkit-font-smoothing: antialiased;
+        }
+
+        .glass {
+            background: rgba(20, 20, 20, 0.8);
+            backdrop-filter: blur(16px);
+            border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+        }
+
+        .content-card {
+            background: #141414;
+            border: 1px solid rgba(255, 255, 255, 0.05);
+            border-radius: 32px;
+        }
+
+        .gold-gradient {
+            background: linear-gradient(135deg, #FFD700 0%, #FFA500 100%);
+            background-clip: text;
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+        }
+
+        .step-num {
+            background: linear-gradient(135deg, #FFD700 0%, #FFA500 100%);
+            color: #000000;
+        }
+
+        ::-webkit-scrollbar {
+            width: 8px;
+        }
+
+        ::-webkit-scrollbar-track {
+            background: #0c0c0c;
+        }
+
+        ::-webkit-scrollbar-thumb {
+            background: #FFD700;
+            border-radius: 20px;
+        }
+    </style>
+</head>
+
+<body class="font-cairo leading-relaxed">
+    <div id="root"></div>
+
+    <script type="text/babel">
+        const { motion, AnimatePresence } = Motion;
+
+        const Header = () => (
+            <nav className="fixed top-0 left-0 right-0 z-50 glass py-4 px-6 md:px-8 flex justify-between items-center">
+                <motion.div
+                    initial={{ opacity: 0, x: -20 }}
+                    animate={{ opacity: 1, x: 0 }}
+                    className="text-xl md:text-2xl font-black tracking-tighter gold-gradient"
+                >
+                    TALABAK PS
+                </motion.div>
+                <div className="text-[10px] uppercase tracking-widest text-white/40 font-bold hidden sm:block">
+                    Compliance & Safety Center
+                </div>
+            </nav>
+        );
+
+        const SectionHeader = ({ icon: IconName, title, subtitle }) => (
+            <div className="flex items-center gap-4 md:gap-5 mb-6 md:mb-8">
+                <div className="p-3 md:p-4 bg-white/5 rounded-2xl md:rounded-3xl border border-white/10 shrink-0">
+                    <i data-lucide={IconName} className="w-5 h-5 md:w-6 md:h-6 text-primary"></i>
+                </div>
+                <div>
+                    <h2 className="text-xl md:text-2xl font-bold text-white leading-tight">{title}</h2>
+                    {subtitle && <p className="text-white/40 text-xs md:text-sm mt-1">{subtitle}</p>}
+                </div>
+            </div>
+        );
+
+        const DeletionPage = () => {
+            return (
+                <div className="min-h-screen pt-24 md:pt-32 pb-16 px-4 md:px-6 relative">
+                    <Header />
+                    <main className="max-w-4xl mx-auto relative z-10">
+                        {/* Title Section */}
+                        <motion.div
+                            initial={{ opacity: 0, y: 30 }}
+                            animate={{ opacity: 1, y: 0 }}
+                            className="text-center mb-12 md:mb-16"
+                        >
+                            <h1 className="text-4xl md:text-7xl font-black mb-6 gold-gradient tracking-tight leading-tight">
+                                طلب حذف الحساب
+                            </h1>
+                            <p className="text-white/60 max-w-2xl mx-auto text-base md:text-lg leading-relaxed px-4">
+                                نأسف لمغادرتك. نحن نلتزم بحماية خصوصيتك وضمان حذف بياناتك بشكل آمن ونهائي عند الطلب.
+                            </p>
+                        </motion.div>
+
+                        {/* Main Content Card */}
+                        <motion.div
+                            initial={{ opacity: 0, y: 40 }}
+                            animate={{ opacity: 1, y: 0 }}
+                            transition={{ delay: 0.2 }}
+                            className="content-card p-6 md:p-16 shadow-2xl relative"
+                        >
+                            <div className="space-y-12 md:space-y-16">
+                                {/* Steps Section */}
+                                <section>
+                                    <SectionHeader 
+                                        icon="smartphone" 
+                                        title="الحذف عبر التطبيق" 
+                                        subtitle="الطريقة الأسرع والأكثر أماناً"
+                                    />
+                                    <div className="grid gap-3 mr-2 sm:mr-4">
+                                        {[
+                                            "افتح تطبيق طلبك بي أس (Talabak PS)",
+                                            "انتقل إلى القائمة الجانبية ثم 'الإعدادات'",
+                                            "اضغط على خيار 'حذف الحساب' في أسفل الشاشة",
+                                            "قم بتأكيد الطلب وسيتم معالجة الحذف فوراً"
+                                        ].map((step, i) => (
+                                            <div key={i} className="flex gap-4 items-center bg-white/5 p-4 md:p-5 rounded-xl md:rounded-2xl border border-white/5">
+                                                <span className="w-7 h-7 md:w-8 md:h-8 rounded-full step-num flex items-center justify-center font-bold text-xs md:text-sm shrink-0">
+                                                    {i + 1}
+                                                </span>
+                                                <span className="text-white/80 font-medium text-sm md:text-base">{step}</span>
+                                            </div>
+                                        ))}
+                                    </div>
+                                </section>
+
+                                {/* Email Request */}
+                                <section>
+                                    <SectionHeader 
+                                        icon="mail" 
+                                        title="الحذف عبر البريد الإلكتروني" 
+                                        subtitle="للمستخدمين الذين لا يملكون التطبيق"
+                                    />
+                                    <div className="bg-white/5 p-6 md:p-8 rounded-2xl md:rounded-3xl border border-white/5 text-center space-y-4">
+                                        <p className="text-white/70 text-sm md:text-base">أرسل طلباً يتضمن رقم الهاتف المرتبط بالحساب إلى:</p>
+                                        <div className="text-lg md:text-3xl font-black text-primary select-all break-all px-2 overflow-hidden">
+                                            support@talabak.ps
+                                        </div>
+                                        <p className="text-white/30 text-[10px] md:text-xs italic">
+                                            * سيتم الرد على طلبات البريد الإلكتروني خلال 48 ساعة عمل.
+                                        </p>
+                                    </div>
+                                </section>
+
+                                {/* Data Retention & Deletion */}
+                                <section>
+                                    <SectionHeader 
+                                        icon="shield-check" 
+                                        title="سياسة البيانات" 
+                                        subtitle="شفافية تامة حول بياناتك"
+                                    />
+                                    <div className="grid sm:grid-cols-2 gap-4 md:gap-6">
+                                        <div className="p-5 md:p-6 bg-white/5 rounded-2xl md:rounded-3xl border border-white/5">
+                                            <h3 className="text-primary font-bold mb-3 flex items-center gap-2 text-sm md:text-base">
+                                                <i data-lucide="trash-2" className="w-4 h-4"></i>
+                                                ما سيتم حذفه نهائياً
+                                            </h3>
+                                            <ul className="space-y-2 text-white/50 text-xs md:text-sm">
+                                                <li>• المعلومات الشخصية والحساب</li>
+                                                <li>• عناوين التوصيل والمواقع</li>
+                                                <li>• سجل التفضيلات والمتاجر</li>
+                                                <li>• إعدادات الإشعارات</li>
+                                            </ul>
+                                        </div>
+                                        <div className="p-5 md:p-6 bg-white/5 rounded-2xl md:rounded-3xl border border-white/5">
+                                            <h3 className="text-white/40 font-bold mb-3 flex items-center gap-2 text-sm md:text-base">
+                                                <i data-lucide="clock" className="w-4 h-4"></i>
+                                                ما قد يتم الاحتفاظ به
+                                            </h3>
+                                            <ul className="space-y-2 text-white/50 text-xs md:text-sm">
+                                                <li>• سجل المعاملات المالية (ضريبياً)</li>
+                                                <li>• سجلات الدعم الفني</li>
+                                                <li>• بيانات مجهولة للتحليل</li>
+                                            </ul>
+                                        </div>
+                                    </div>
+                                </section>
+                            </div>
+                        </motion.div>
+
+                        <footer className="mt-16 text-center">
+                            <div className="flex justify-center flex-wrap gap-6 md:gap-8 text-[10px] md:text-sm font-semibold text-white/30 px-4">
+                                <a href="https://mediumorchid-lark-605198.hostingersite.com/" className="hover:text-primary transition-colors uppercase tracking-widest">Privacy Policy</a>
+                                <a href="#" className="hover:text-primary transition-colors uppercase tracking-widest">Terms</a>
+                                <span className="uppercase tracking-widest cursor-default">Talabak PS © 2026</span>
+                            </div>
+                        </footer>
+                    </main>
+                </div>
+            );
+        };
+
+        const root = ReactDOM.createRoot(document.getElementById('root'));
+        root.render(<DeletionPage />);
+
+        // Sync icons
+        setTimeout(() => {
+            if (window.lucide) lucide.createIcons();
+        }, 100);
+    </script>
+</body>
+
+</html>
