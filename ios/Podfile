@@ -3,9 +3,11 @@ platform :ios, '14.0'
 # CocoaPods analytics sends network stats synchronously affecting build performance.
 ENV['COCOAPODS_DISABLE_STATS'] = '1'
 
-# Manually define Firebase SDK version to fix the 'nil' error in firebase_core
+# Global variable for Firebase SDK
+$FirebaseSDKVersion = '11.14.0'
+
 def firebase_sdk_version
-  '11.14.0'
+  $FirebaseSDKVersion
 end
 
 project 'Runner', {
