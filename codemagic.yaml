@@ -1,37 +1,32 @@
 workflows:
-ios-build:
-name: Talabak iOS Build
-max_build_duration: 60
-instance_type: mac_mini_m2
-
-```
-environment:
-  flutter: stable
-  xcode: latest
-  cocoapods: 1.15.2
-
-scripts:
-  - name: Flutter clean
-    script: |
-      flutter clean
-
-  - name: Flutter pub get
-    script: |
-      flutter pub get
-      flutter precache --ios
-
-  - name: Fix CocoaPods
-    script: |
-      cd ios
-      rm -rf Pods Podfile.lock .symlinks
-      pod deintegrate
-      pod install --repo-update
-      cd ..
-
-  - name: Build iOS without codesign
-    script: |
-      flutter build ios --release --no-codesign
-
-artifacts:
-  - build/ios/iphoneos/*.app
-```
+  ios-build:
+    name: Talabak iOS Build
+    max_build_duration: 60
+    instance_type: mac_mini_m2
+    environment:
+      flutter: stable
+      # 🔥 Fix: Use stable Xcode 16.0 instead of 'latest' (Xcode 26)
+      xcode: 16.0
+      cocoapods: 1.15.2
+    scripts:
+      - name: Downgrade build tools for compatibility
+        script: |
+          gem uninstall xcodeproj -a -x || true
+          gem install xcodeproj -v 1.25.0 --no-document
+          gem install cocoapods -v 1.15.2 --no-document
+      - name: Flutter pub get and precache
+        script: |
+          flutter pub get
+          flutter precache --ios
+      - name: Fix CocoaPods and install
+        script: |
+          cd ios
+          rm -rf Pods Podfile.lock .symlinks
+          pod deintegrate
+          pod install --repo-update
+          cd ..
+      - name: Build iOS
+        script: |
+          flutter build ios --release --no-codesign
+    artifacts:
+      - build/ios/ipa/*.ipa
