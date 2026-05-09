@@ -50,23 +50,16 @@ post_install do |installer|
     flutter_additional_ios_build_settings(target)
 
     target.build_configurations.each do |config|
-<<<<<<< HEAD
+      # Fix for Swift Bridging Header error
       config.build_settings['BUILD_LIBRARY_FOR_DISTRIBUTION'] = 'NO'
       config.build_settings['IPHONEOS_DEPLOYMENT_TARGET'] = '15.0'
-=======
-
->>>>>>> 9137dc7138803d2fb1eb63505b795bc3371296a2
-      config.build_settings['IPHONEOS_DEPLOYMENT_TARGET'] = '15.0'
-
       config.build_settings['ONLY_ACTIVE_ARCH'] = 'NO'
-
       config.build_settings['CODE_SIGNING_ALLOWED'] = 'NO'
 
       config.build_settings['GCC_PREPROCESSOR_DEFINITIONS'] ||= [
         '$(inherited)',
         'PERMISSION_NOTIFICATIONS=1'
       ]
-
     end
   end
 end
