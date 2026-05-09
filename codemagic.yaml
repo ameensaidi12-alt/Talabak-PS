@@ -3,23 +3,19 @@ workflows:
     name: Talabak iOS Build
     max_build_duration: 60
     instance_type: mac_mini_m2
-
     environment:
       flutter: stable
       xcode: 15.4
       cocoapods: 1.15.2
-
     scripts:
       - name: Setup build tools
         script: |
           gem uninstall xcodeproj -a -x || true
           gem install xcodeproj -v 1.25.0 --no-document
           gem install cocoapods -v 1.15.2 --no-document
-
       - name: Flutter pub get
         script: |
           flutter pub get
-
       - name: Clean and Install Pods
         script: |
           cd ios
@@ -27,10 +23,9 @@ workflows:
           pod deintegrate
           pod install --repo-update
           cd ..
-
-      - name: Build iOS Simulator
+      - name: Build iOS (Simulator)
         script: |
+          # 🔥 Build for simulator to bypass code signing requirement
           flutter build ios --debug --simulator
-
     artifacts:
       - build/ios/iphonesimulator/*.app
