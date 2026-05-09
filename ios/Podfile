@@ -39,9 +39,8 @@ require File.expand_path(
 flutter_ios_podfile_setup
 
 target 'Runner' do
-  # 🔥 Use standard dynamic frameworks
+  # 🔥 Use standard dynamic frameworks (without modular headers to avoid bridging header conflicts)
   use_frameworks!
-  use_modular_headers!
 
   flutter_install_all_ios_pods File.dirname(File.realpath(__FILE__))
 end
@@ -51,13 +50,16 @@ post_install do |installer|
     flutter_additional_ios_build_settings(target)
     
     target.build_configurations.each do |config|
-      # Remove distribution hacks as they are for static linkage
+      # Disable module distribution to fix "bridging headers with module interfaces" error
       config.build_settings['BUILD_LIBRARY_FOR_DISTRIBUTION'] = 'NO'
       
       # Ensure deployment target is consistent
       config.build_settings['IPHONEOS_DEPLOYMENT_TARGET'] = '15.0'
       
       config.build_settings['ONLY_ACTIVE_ARCH'] = 'NO'
+
+      # Suppress Swift bridging header issues
+      config.build_settings['SWIFT_SUPPRESS_WARNINGS'] = 'YES'
 
       config.build_settings['GCC_PREPROCESSOR_DEFINITIONS'] ||= [
         '$(inherited)',
