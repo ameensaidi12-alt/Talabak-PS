@@ -5,20 +5,19 @@ workflows:
     instance_type: mac_mini_m2
     environment:
       flutter: stable
-      # 🔥 Fix: Use stable Xcode 16.0 instead of 'latest' (Xcode 26)
-      xcode: 16.0
+      # 🔥 Fix: Use Xcode 15.4 (Rock solid for Flutter)
+      xcode: 15.4
       cocoapods: 1.15.2
     scripts:
-      - name: Downgrade build tools for compatibility
+      - name: Setup build tools
         script: |
           gem uninstall xcodeproj -a -x || true
           gem install xcodeproj -v 1.25.0 --no-document
           gem install cocoapods -v 1.15.2 --no-document
-      - name: Flutter pub get and precache
+      - name: Flutter pub get
         script: |
           flutter pub get
-          flutter precache --ios
-      - name: Fix CocoaPods and install
+      - name: Clean and Install Pods
         script: |
           cd ios
           rm -rf Pods Podfile.lock .symlinks
