@@ -562,6 +562,7 @@ class SupabaseService {
     String? vendorAreaId,
     double defaultFee, {
     double? subtotal,
+    double? vendorThreshold,
   }) async {
     double fee = defaultFee;
     bool hasPromo = false;
@@ -668,6 +669,14 @@ class SupabaseService {
         debugPrint("Error fetching promotions: $e");
       }
 
+      // 3. Apply Vendor-Specific Threshold (New Fix)
+      if (vendorThreshold != null && vendorThreshold > 0 && subtotal != null) {
+        if (subtotal >= vendorThreshold) {
+          fee = 0;
+          hasPromo = true;
+        }
+      }
+
       fee = fee.clamp(0, double.infinity);
       return {
         'fee': fee,
@@ -681,8 +690,8 @@ class SupabaseService {
   }
 
   // Keep old method for backward compatibility
-  Future<double> getEffectiveDeliveryFee(String? vendorAreaId, double defaultFee, {double? subtotal}) async {
-    final Map<String, dynamic> info = await getEffectiveDeliveryFeeInfo(vendorAreaId, defaultFee, subtotal: subtotal);
+  Future<double> getEffectiveDeliveryFee(String? vendorAreaId, double defaultFee, {double? subtotal, double? vendorThreshold}) async {
+    final Map<String, dynamic> info = await getEffectiveDeliveryFeeInfo(vendorAreaId, defaultFee, subtotal: subtotal, vendorThreshold: vendorThreshold);
     return (info['fee'] as num).toDouble();
   }
 

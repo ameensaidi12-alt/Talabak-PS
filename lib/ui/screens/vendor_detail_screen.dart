@@ -134,6 +134,7 @@ class _VendorDetailScreenState extends State<VendorDetailScreen>
         _vendor.areaId,
         _vendor.deliveryFee,
         subtotal: vendorSubtotal,
+        vendorThreshold: _vendor.freeDeliveryThreshold,
       );
     }
     
@@ -465,10 +466,10 @@ class _VendorDetailScreenState extends State<VendorDetailScreen>
                         child: _vendor.hasDelivery
                             ? _buildInfoItem(
                                 icon: Icons.delivery_dining,
-                                iconColor: _vendor.isFreeDelivery
+                                iconColor: _effectiveDeliveryFee == 0
                                     ? const Color(0xFF10B981)
                                     : const Color(0xFF4AC3E1),
-                                text: _vendor.isFreeDelivery
+                                text: _effectiveDeliveryFee == 0
                                     ? 'مجاني'
                                     : '${_effectiveDeliveryFee.toInt()} ₪',
                                 label: 'توصيل',
@@ -533,7 +534,7 @@ class _VendorDetailScreenState extends State<VendorDetailScreen>
                     ),
                   ),
                 ],
-                if (!_vendor.isFreeDelivery && _vendor.freeDeliveryThreshold != null && _vendor.freeDeliveryThreshold! > 0) ...[
+                if (_vendor.freeDeliveryThreshold != null && _vendor.freeDeliveryThreshold! > 0) ...[
                   const SizedBox(height: 12),
                   _buildFreeDeliveryPromotion(),
                 ],

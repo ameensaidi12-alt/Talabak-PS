@@ -102,6 +102,7 @@ class _MarketDetailScreenState extends State<MarketDetailScreen> {
         _vendor.areaId,
         _vendor.deliveryFee,
         subtotal: vendorSubtotal,
+        vendorThreshold: _vendor.freeDeliveryThreshold,
       );
     }
     
@@ -469,7 +470,7 @@ class _MarketDetailScreenState extends State<MarketDetailScreen> {
                         ),
                       ),
                     ],
-                    if (!_vendor.isFreeDelivery && _vendor.freeDeliveryThreshold != null && _vendor.freeDeliveryThreshold! > 0) ...[
+                    if (_vendor.freeDeliveryThreshold != null && _vendor.freeDeliveryThreshold! > 0) ...[
                       const SizedBox(height: 8),
                       Container(
                         padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
@@ -553,7 +554,7 @@ class _MarketDetailScreenState extends State<MarketDetailScreen> {
             mainAxisAlignment: MainAxisAlignment.spaceAround,
             children: [
               // 1. Logic for Delivery Icons (3 Cases) with Colors
-              if (_vendor.isFreeDelivery && _vendor.hasDelivery)
+              if (_effectiveDeliveryFee == 0 && _vendor.hasDelivery)
                 _buildStatItem(
                   icon: Icons.local_offer,
                   iconColor: const Color(0xFF10B981), // Green for Free

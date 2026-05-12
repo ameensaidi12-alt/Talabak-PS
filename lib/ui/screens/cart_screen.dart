@@ -32,7 +32,32 @@ class _CartScreenState extends State<CartScreen> {
       return (v.customDeliveryFee ?? v.deliveryFee).toDouble();
     } else {
       final supabaseService = SupabaseService();
-      return await supabaseService.getEffectiveDeliveryFee(v.areaId, v.deliveryFee, subtotal: subtotal);
+      return await supabaseService.getEffectiveDeliveryFee(v.areaId, v.deliveryFee, subtotal: subtotal, vendorThreshold: v.freeDeliveryThreshold);
+    }
+  }
+
+  Future<List<Map<String, dynamic>>> _getFreeDeliveryHints(CartProvider cart) async {
+    try {
+      final supabaseService = SupabaseService();
+      List<Map<String, dynamic>> hints = [];
+      final itemsByVendor = cart.itemsByVendor;
+      for (String vendorId in itemsByVendor.keys) {
+        final v = await supabaseService.getVendorById(vendorId);
+        if (v.isFreeDelivery) continue;
+        if (v.freeDeliveryThreshold != null && v.freeDeliveryThreshold! > 0) {
+          final vendorItems = itemsByVendor[vendorId]!;
+          final subtotal = vendorItems.fold(0.0, (sum, item) => sum + item.totalPrice);
+          if (subtotal < v.freeDeliveryThreshold!) {
+            hints.add({
+              'vendor_name': v.name,
+              'remaining': v.freeDeliveryThreshold! - subtotal,
+            });
+          }
+        }
+      }
+      return hints;
+    } catch (e) {
+      return [];
     }
   }
 
@@ -333,6 +358,38 @@ class _CartScreenState extends State<CartScreen> {
             else Row(children: [if (deliveryFee == 0) ...[Container(padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2), decoration: BoxDecoration(color: Colors.green[50], borderRadius: BorderRadius.circular(6), border: Border.all(color: Colors.green[100]!)), child: Row(children: [const Icon(Icons.auto_awesome, size: 12, color: Color(0xFFFFD700)), const SizedBox(width: 4), Text("عرض توصيل مجاني✨", style: GoogleFonts.cairo(fontSize: 10, fontWeight: FontWeight.bold, color: const Color(0xFF8B5CF6)))]))], const SizedBox(width: 8), Text(deliveryFee == 0 ? "0 ₪" : "${deliveryFee.toStringAsFixed(2)} ₪", style: GoogleFonts.cairo(fontSize: 16, fontWeight: FontWeight.bold, color: deliveryFee == 0 ? Colors.green[700] : Colors.grey[800]))]),
             Text("رسوم التوصيل", style: GoogleFonts.cairo(fontSize: 14, color: Colors.grey[600])),
           ]),
+          const SizedBox(height: 8),
+          FutureBuilder<List<Map<String, dynamic>>>(
+            future: _getFreeDeliveryHints(cart),
+            builder: (context, hintSnapshot) {
+              final hints = hintSnapshot.data ?? [];
+              if (hints.isEmpty) return const SizedBox.shrink();
+              return Column(
+                children: hints.map((hint) => Container(
+                  width: double.infinity,
+                  margin: const EdgeInsets.only(bottom: 8),
+                  padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                  decoration: BoxDecoration(
+                    color: const Color(0xFF8B5CF6).withOpacity(0.05),
+                    borderRadius: BorderRadius.circular(10),
+                    border: Border.all(color: const Color(0xFF8B5CF6).withOpacity(0.1)),
+                  ),
+                  child: Row(
+                    children: [
+                      const Icon(Icons.info_outline_rounded, size: 14, color: Color(0xFF8B5CF6)),
+                      const SizedBox(width: 8),
+                      Expanded(
+                        child: Text(
+                          "أضف ${hint['remaining'].toStringAsFixed(0)} ₪ إضافية من ${hint['vendor_name']} للحصول على توصيل مجاني!",
+                          style: GoogleFonts.cairo(fontSize: 10, color: const Color(0xFF8B5CF6), fontWeight: FontWeight.bold),
+                        ),
+                      ),
+                    ],
+                  ),
+                )).toList(),
+              );
+            },
+          ),
           const Padding(padding: EdgeInsets.symmetric(vertical: 12), child: Divider(height: 1)),
           Row(mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [Text("${totalWithDelivery.toStringAsFixed(2)} ₪", style: GoogleFonts.cairo(fontSize: 26, fontWeight: FontWeight.bold, color: AppColors.primary)), Text("المجموع النهائي", style: GoogleFonts.cairo(fontSize: 18, fontWeight: FontWeight.bold, color: Colors.black87))]),
           const SizedBox(height: 20),
