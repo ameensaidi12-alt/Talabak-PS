@@ -125,9 +125,15 @@ class _VendorDetailScreenState extends State<VendorDetailScreen>
     if (_vendor.useCustomDelivery) {
       fee = (_vendor.customDeliveryFee ?? _vendor.deliveryFee).toDouble();
     } else {
+      final cart = Provider.of<CartProvider>(context, listen: false);
+      final vendorSubtotal = cart.items
+          .where((item) => item.product.vendorId == _vendor.id)
+          .fold(0.0, (sum, item) => sum + item.totalPrice);
+          
       fee = await _supabaseService.getEffectiveDeliveryFee(
         _vendor.areaId,
         _vendor.deliveryFee,
+        subtotal: vendorSubtotal,
       );
     }
     

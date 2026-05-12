@@ -7,9 +7,9 @@ import 'package:flutter/foundation.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:google_sign_in/google_sign_in.dart' as g_sign;
 import 'package:geolocator/geolocator.dart';
- import 'local_log_service.dart';
- import '../models/models.dart';
- import '../utils/image_utils.dart';
+import 'local_log_service.dart';
+import '../models/models.dart';
+import '../utils/image_utils.dart';
 
 class SupabaseService {
   static final SupabaseService _instance = SupabaseService._internal();
@@ -560,8 +560,9 @@ class SupabaseService {
 
   Future<Map<String, dynamic>> getEffectiveDeliveryFeeInfo(
     String? vendorAreaId,
-    double defaultFee,
-  ) async {
+    double defaultFee, {
+    double? subtotal,
+  }) async {
     double fee = defaultFee;
     bool hasPromo = false;
     try {
@@ -619,21 +620,28 @@ class SupabaseService {
           final String idList = areaIds.map((id) => '"$id"').join(',');
           promoData = await _client
               .from('delivery_promotions')
-              .select('discount_percentage, area_id')
+              .select('discount_percentage, discount_amount, area_id, min_order_value')
               .eq('is_active', true)
               .or('area_id.is.null,area_id.in.($idList)');
         } else {
           promoData = await _client
               .from('delivery_promotions')
-              .select('discount_percentage, area_id')
+              .select('discount_percentage, discount_amount, area_id, min_order_value')
               .eq('is_active', true)
               .filter('area_id', 'is', null);
         }
 
-        if (promoData.isNotEmpty) {
-          // Sort by specificity: القرية أولاً ثم المنطقة ثم العام
-          final List<dynamic> promos = List<dynamic>.from(promoData);
-          promos.sort((a, b) {
+          // Filter by min_order_value first
+          final List<dynamic> promos = List<dynamic>.from(promoData).where((p) {
+            final double minVal = double.tryParse(p['min_order_value']?.toString() ?? '0') ?? 0;
+            if (minVal <= 0) return true;
+            if (subtotal == null) return false; // Can't satisfy min_order if we don't know subtotal
+            return subtotal >= minVal;
+          }).toList();
+
+          if (promos.isNotEmpty) {
+            // Sort by specificity: القرية أولاً ثم المنطقة ثم العام
+            promos.sort((a, b) {
             final dynamic areaA = (a as Map)['area_id'];
             final dynamic areaB = (b as Map)['area_id'];
             
@@ -645,20 +653,26 @@ class SupabaseService {
           });
 
           final dynamic bestPromo = promos.first;
-          final double discountPct = (bestPromo['discount_percentage'] as num).toDouble();
-          if (discountPct > 0) {
+          final double? discountAmt = bestPromo['discount_amount'] != null ? double.tryParse(bestPromo['discount_amount'].toString()) : null;
+          final double? discountPct = bestPromo['discount_percentage'] != null ? double.tryParse(bestPromo['discount_percentage'].toString()) : null;
+          
+          if (discountAmt != null && discountAmt > 0) {
+            fee = (fee - discountAmt);
+            hasPromo = true;
+          } else if (discountPct != null && discountPct > 0) {
             fee = fee * (1 - (discountPct / 100));
             hasPromo = true;
           }
         }
       } catch (e) {
-        debugPrint("Error fetching promotion info: $e");
+        debugPrint("Error fetching promotions: $e");
       }
 
+      fee = fee.clamp(0, double.infinity);
       return {
-        'fee': fee, 
-        'originalFee': feeBeforePromo, 
-        'hasPromo': hasPromo
+        'fee': fee,
+        'originalFee': feeBeforePromo,
+        'hasPromo': hasPromo || fee < feeBeforePromo,
       };
     } catch (e) {
       debugPrint("Error calculating fee info: $e");
@@ -667,8 +681,8 @@ class SupabaseService {
   }
 
   // Keep old method for backward compatibility
-  Future<double> getEffectiveDeliveryFee(String? vendorAreaId, double defaultFee) async {
-    final Map<String, dynamic> info = await getEffectiveDeliveryFeeInfo(vendorAreaId, defaultFee);
+  Future<double> getEffectiveDeliveryFee(String? vendorAreaId, double defaultFee, {double? subtotal}) async {
+    final Map<String, dynamic> info = await getEffectiveDeliveryFeeInfo(vendorAreaId, defaultFee, subtotal: subtotal);
     return (info['fee'] as num).toDouble();
   }
 

@@ -20,15 +20,17 @@ class NotificationService {
     );
 
     // 2. Immediate Listeners (Register before any awaits to catch early events)
-    FirebaseMessaging.onMessage.listen((RemoteMessage message) {
-      LocalLogService.log("FOREGROUND: Message received ${message.messageId}");
-      _showNotificationPopup(message);
-    });
+    if (kIsWeb || Platform.isAndroid || Platform.isIOS) {
+      FirebaseMessaging.onMessage.listen((RemoteMessage message) {
+        LocalLogService.log("FOREGROUND: Message received ${message.messageId}");
+        _showNotificationPopup(message);
+      });
 
-    FirebaseMessaging.onMessageOpenedApp.listen((RemoteMessage message) {
-      LocalLogService.log("CLICK: App opened from background ${message.messageId}");
-      _handleMessageNavigation(message.data);
-    });
+      FirebaseMessaging.onMessageOpenedApp.listen((RemoteMessage message) {
+        LocalLogService.log("CLICK: App opened from background ${message.messageId}");
+        _handleMessageNavigation(message.data);
+      });
+    }
 
     // 3. Immediate Cold Start Check (Check before permissions to avoid blocking)
     
@@ -45,15 +47,17 @@ class NotificationService {
     });
 
     // 3b. Check Firebase (Fallback for native OS-handled push)
-    FirebaseMessaging.instance.getInitialMessage().then((RemoteMessage? message) {
-      if (message != null) {
-        if (_lastHandledId == message.messageId) return;
-        _lastHandledId = message.messageId;
+    if (kIsWeb || Platform.isAndroid || Platform.isIOS) {
+      FirebaseMessaging.instance.getInitialMessage().then((RemoteMessage? message) {
+        if (message != null) {
+          if (_lastHandledId == message.messageId) return;
+          _lastHandledId = message.messageId;
 
-        LocalLogService.log("COLD_START (FCM): App launched from notification ${message.messageId}");
-        _handleMessageNavigation(message.data);
-      }
-    });
+          LocalLogService.log("COLD_START (FCM): App launched from notification ${message.messageId}");
+          _handleMessageNavigation(message.data);
+        }
+      });
+    }
 
     // 4. Request Firebase Permissions (Non-blocking for the logic above)
     if (!kIsWeb && (Platform.isAndroid || Platform.isIOS)) {

@@ -3,11 +3,13 @@ import 'dart:async';
 import '../../core/models/models.dart';
 import '../../core/theme/app_colors.dart';
 import '../../core/services/supabase_service.dart';
+import 'package:cached_network_image/cached_network_image.dart';
 import 'chat_support_screen.dart';
 
 class OrderTrackingScreen extends StatefulWidget {
   final String? orderId;
-  const OrderTrackingScreen({super.key, this.orderId});
+  final String? batchId;
+  const OrderTrackingScreen({super.key, this.orderId, this.batchId});
 
   @override
   State<OrderTrackingScreen> createState() => _OrderTrackingScreenState();
@@ -18,6 +20,7 @@ class _OrderTrackingScreenState extends State<OrderTrackingScreen> {
   double progress = 0.3;
   Timer? _timer;
   Map<String, dynamic>? latestOrder;
+  List<Map<String, dynamic>> allOrders = [];
   bool loading = true;
 
   @override
@@ -36,34 +39,65 @@ class _OrderTrackingScreenState extends State<OrderTrackingScreen> {
       final user = client.auth.currentUser;
       if (user == null) return;
 
-      final dynamic response;
+      List<Map<String, dynamic>> fetchedOrders = [];
 
-      if (widget.orderId != null) {
-        response = await client
+      if (widget.batchId != null) {
+        final response = await client
             .from('orders')
-            .select('*, vendors(name)')
+            .select('*, vendors(name, logo_url)')
+            .eq('batch_id', widget.batchId!)
+            .eq('source', 'mob_app')
+            .order('created_at', ascending: false);
+        if (response is List) fetchedOrders = List<Map<String, dynamic>>.from(response);
+      } else if (widget.orderId != null) {
+        final response = await client
+            .from('orders')
+            .select('*, vendors(name, logo_url)')
             .eq('id', widget.orderId!)
-            .eq(
-              'source',
-              'mob_app',
-            ) // Ensure even deep links respect app source
             .maybeSingle();
+        
+        if (response != null) {
+          final order = Map<String, dynamic>.from(response);
+          final bid = order['batch_id']?.toString();
+          if (bid != null) {
+            final batchResponse = await client
+                .from('orders')
+                .select('*, vendors(name, logo_url)')
+                .eq('batch_id', bid)
+                .order('created_at', ascending: false);
+            if (batchResponse is List) fetchedOrders = List<Map<String, dynamic>>.from(batchResponse);
+          } else {
+            fetchedOrders = [order];
+          }
+        }
       } else {
-        response = await client
+        final response = await client
             .from('orders')
-            .select('*, vendors(name)')
+            .select('*, vendors(name, logo_url)')
             .eq('user_id', user.id)
-            .eq('source', 'mob_app') // Only show App Orders
+            .eq('source', 'mob_app')
             .order('created_at', ascending: false)
             .limit(1)
             .maybeSingle();
+        if (response != null) {
+          final order = Map<String, dynamic>.from(response);
+          final bid = order['batch_id']?.toString();
+          if (bid != null) {
+             final batchResponse = await client.from('orders').select('*, vendors(name, logo_url)').eq('batch_id', bid);
+             if (batchResponse is List) fetchedOrders = List<Map<String, dynamic>>.from(batchResponse);
+          } else {
+            fetchedOrders = [order];
+          }
+        }
       }
 
       if (mounted) {
         setState(() {
-          latestOrder = response;
+          allOrders = fetchedOrders;
+          latestOrder = fetchedOrders.isNotEmpty ? fetchedOrders.first : null;
           loading = false;
           if (latestOrder != null) {
+            // Use the "most active" status or the first one
             _syncStatus(latestOrder!['status']);
           }
         });
@@ -180,10 +214,22 @@ class _OrderTrackingScreenState extends State<OrderTrackingScreen> {
   }
 
   Widget _buildOrderPrice() {
-    final double subtotal = (latestOrder?['subtotal'] ?? 0).toDouble();
-    final double deliveryFee = (latestOrder?['delivery_fee'] ?? 0).toDouble();
-    final double discount = (latestOrder?['points_discount'] ?? 0).toDouble();
-    final double total = (latestOrder?['total_price'] ?? 0).toDouble();
+    double subtotal = 0;
+    double deliveryFee = 0;
+    double discount = 0;
+    double total = 0;
+
+    for (var order in allOrders) {
+      subtotal += (order['subtotal'] ?? 0).toDouble();
+      deliveryFee += (order['delivery_fee'] ?? 0).toDouble();
+      discount += (order['points_discount'] ?? 0).toDouble();
+      total += (order['total_price'] ?? 0).toDouble();
+    }
+
+    // If it's a batch, we might have a unified batch_total stored in the first order
+    if (allOrders.length > 1 && allOrders.first['batch_total'] != null) {
+      total = (allOrders.first['batch_total'] ?? 0).toDouble();
+    }
 
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 16),
@@ -256,24 +302,62 @@ class _OrderTrackingScreenState extends State<OrderTrackingScreen> {
   }
 
   Widget _buildVendorInfo() {
+    final names = allOrders.map((o) => o['vendors']?['name'] ?? "").where((n) => n.isNotEmpty).join(" + ");
     return Row(
       children: [
-        CircleAvatar(
-          radius: 25,
-          backgroundColor: Color(0xFFFDE8ED),
-          child: Icon(Icons.restaurant, color: AppColors.primary),
-        ),
+        if (allOrders.length > 1)
+          SizedBox(
+            width: 60,
+            height: 40,
+            child: Stack(
+              children: allOrders.take(3).toList().asMap().entries.map((entry) {
+                return Positioned(
+                  left: entry.key * 15.0,
+                  child: CircleAvatar(
+                    radius: 18,
+                    backgroundColor: Colors.white,
+                    backgroundImage: entry.value['vendors']?['logo_url'] != null 
+                        ? NetworkImage(entry.value['vendors']['logo_url']) 
+                        : null,
+                    child: entry.value['vendors']?['logo_url'] == null 
+                        ? Icon(Icons.store, size: 14, color: AppColors.primary) 
+                        : null,
+                  ),
+                );
+              }).toList(),
+            ),
+          )
+        else
+          CircleAvatar(
+            radius: 25,
+            backgroundColor: Color(0xFFFDE8ED),
+            child: latestOrder?['vendors']?['logo_url'] != null 
+                ? ClipRRect(
+                    borderRadius: BorderRadius.circular(25),
+                    child: CachedNetworkImage(
+                      imageUrl: latestOrder!['vendors']['logo_url'],
+                      fit: BoxFit.cover,
+                      width: 50,
+                      height: 50,
+                    ),
+                  )
+                : Icon(Icons.restaurant, color: AppColors.primary),
+          ),
         const SizedBox(width: 16),
         Expanded(
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.end,
             children: [
               Text(
-                latestOrder?['vendors']?['name'] ?? "المطعم",
-                style: const TextStyle(
-                  fontSize: 18,
-                  fontWeight: FontWeight.bold,
-                ),
+                allOrders.length > 1 ? "طلب مجمع من:" : (latestOrder?['vendors']?['name'] ?? "المطعم"),
+                style: const TextStyle(fontSize: 14, color: Colors.grey),
+              ),
+              Text(
+                allOrders.length > 1 ? names : (latestOrder?['vendors']?['name'] ?? ""),
+                style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+                maxLines: 2,
+                overflow: TextOverflow.ellipsis,
+                textAlign: TextAlign.end,
               ),
               Text(
                 "رقم الطلب: #${latestOrder?['id']?.toString().substring(0, 8)}",

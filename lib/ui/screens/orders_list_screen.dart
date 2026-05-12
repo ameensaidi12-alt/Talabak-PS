@@ -61,10 +61,20 @@ class _OrdersListScreenState extends State<OrdersListScreen> {
             if (o is! Map) continue;
             final map = Map<String, dynamic>.from(o);
             final batchId = map['batch_id']?.toString();
+
             if (batchId == null) {
               displayList.add(map);
-            } else if (!processedBatches.contains(batchId)) {
-              displayList.add({'type': 'batch', 'items': grouped[batchId]});
+              continue;
+            }
+
+            if (!processedBatches.contains(batchId)) {
+              final batchItems = grouped[batchId]!;
+              if (batchItems.length == 1) {
+                // If it's only one store, treat it as a normal order card
+                displayList.add(batchItems.first);
+              } else {
+                displayList.add({'type': 'batch', 'items': batchItems});
+              }
               processedBatches.add(batchId);
             }
           }
@@ -179,7 +189,8 @@ class _OrdersListScreenState extends State<OrdersListScreen> {
 
   Widget _buildBatchOrderCard(BuildContext context, List<Map<String, dynamic>> orders) {
     final firstOrder = orders.first;
-    final total = orders.fold(0.0, (sum, o) => sum + (double.tryParse(o['total_price'].toString()) ?? 0.0));
+    final double? batchTotalVal = firstOrder['batch_total'] != null ? double.tryParse(firstOrder['batch_total'].toString()) : null;
+    final double total = batchTotalVal ?? orders.fold(0.0, (double sum, o) => sum + (double.tryParse(o['total_price']?.toString() ?? '0') ?? 0.0));
     final date = DateTime.parse(firstOrder['created_at']).toLocal();
     final vendorNames = orders.map((o) => o['vendors']?['name'] ?? '').join(' ، ');
     final statusInfo = _getStatusInfo(firstOrder['status']?.toString() ?? 'pending');
@@ -231,15 +242,23 @@ class _OrdersListScreenState extends State<OrdersListScreen> {
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     Text(
-                      "طلب مشترك (${orders.length} متاجر)",
+                      orders.length > 1 
+                        ? "طلب مشترك (${orders.length} متاجر)" 
+                        : (firstOrder['vendors']?['name'] ?? 'طلب جديد'),
                       style: GoogleFonts.cairo(fontWeight: FontWeight.bold, fontSize: 16),
                     ),
-                    Text(
-                      vendorNames,
-                      style: GoogleFonts.cairo(fontSize: 11, color: Colors.grey[600]),
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                    ),
+                    if (orders.length > 1)
+                      Text(
+                        vendorNames,
+                        style: GoogleFonts.cairo(fontSize: 11, color: Colors.grey[600]),
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                      )
+                    else
+                      Text(
+                        "طلب فردي من متجر واحد",
+                        style: GoogleFonts.cairo(fontSize: 11, color: Colors.grey[500]),
+                      ),
                   ],
                 ),
               ),
@@ -360,7 +379,10 @@ class _OrdersListScreenState extends State<OrdersListScreen> {
                       Navigator.push(
                         context,
                         MaterialPageRoute(
-                          builder: (_) => OrderTrackingScreen(orderId: firstOrder['id']),
+                          builder: (_) => OrderTrackingScreen(
+                            orderId: firstOrder['id'],
+                            batchId: firstOrder['batch_id']?.toString(),
+                          ),
                         ),
                       );
                     },
@@ -532,7 +554,7 @@ class _OrdersListScreenState extends State<OrdersListScreen> {
                   mainAxisAlignment: MainAxisAlignment.spaceBetween,
                   children: [
                     Text(
-                      "${order['total_price'] is num ? (order['total_price'] as num).toStringAsFixed(2) : order['total_price']} ₪",
+                      "${(double.tryParse(order['total_price']?.toString() ?? '0') ?? 0.0).toStringAsFixed(2)} ₪",
                       style: GoogleFonts.cairo(
                         fontWeight: FontWeight.bold,
                         fontSize: 18,
@@ -614,7 +636,10 @@ class _OrdersListScreenState extends State<OrdersListScreen> {
                         context,
                         MaterialPageRoute(
                           builder: (_) =>
-                              OrderTrackingScreen(orderId: order['id']),
+                              OrderTrackingScreen(
+                                orderId: order['id'],
+                                batchId: order['batch_id']?.toString(),
+                              ),
                         ),
                       );
                     },
@@ -683,11 +708,11 @@ class _OrdersListScreenState extends State<OrdersListScreen> {
   }
 
   void _showDetailsModal(BuildContext context, List<Map<String, dynamic>> orders, String title) {
-    final grandTotal = orders.fold(0.0, (sum, o) => sum + (double.tryParse(o['total_price'].toString()) ?? 0.0));
-    final subtotalTotal = orders.fold(0.0, (sum, o) => sum + (double.tryParse(o['subtotal'].toString()) ?? 0.0));
+    final grandTotal = orders.fold(0.0, (double sum, o) => sum + (double.tryParse(o['total_price']?.toString() ?? '0') ?? 0.0));
+    final subtotalTotal = orders.fold(0.0, (double sum, o) => sum + (double.tryParse(o['subtotal']?.toString() ?? '0') ?? 0.0));
     final anyPending = orders.any((o) => o['status']?.toString().toLowerCase() == 'pending');
-    final deliveryTotal = orders.fold(0.0, (sum, o) => sum + (double.tryParse(o['delivery_fee'].toString()) ?? 0.0));
-    final discountTotal = orders.fold(0.0, (sum, o) => sum + (double.tryParse(o['points_discount']?.toString() ?? '0') ?? 0.0));
+    final deliveryTotal = orders.fold(0.0, (double sum, o) => sum + (double.tryParse(o['delivery_fee']?.toString() ?? '0') ?? 0.0));
+    final discountTotal = orders.fold(0.0, (double sum, o) => sum + (double.tryParse(o['points_discount']?.toString() ?? '0') ?? 0.0));
 
     showModalBottomSheet(
       context: context,
@@ -724,10 +749,20 @@ class _OrdersListScreenState extends State<OrdersListScreen> {
                               Icon(Icons.store, size: 18, color: AppColors.primary),
                               const SizedBox(width: 8),
                               Expanded(
-                                child: Text(
-                                  order['vendors']?['name'] ?? "متجر",
-                                  style: GoogleFonts.cairo(fontWeight: FontWeight.bold, fontSize: 14),
-                                  overflow: TextOverflow.ellipsis,
+                                child: Row(
+                                  children: [
+                                    Expanded(
+                                      child: Text(
+                                        order['vendors']?['name'] ?? "متجر",
+                                        style: GoogleFonts.cairo(fontWeight: FontWeight.bold, fontSize: 14),
+                                        overflow: TextOverflow.ellipsis,
+                                      ),
+                                    ),
+                                    Text(
+                                      "${((double.tryParse(order['subtotal']?.toString() ?? '0') ?? 0) + (double.tryParse(order['delivery_fee']?.toString() ?? '0') ?? 0)).toStringAsFixed(2)} ₪",
+                                      style: GoogleFonts.cairo(fontWeight: FontWeight.bold, fontSize: 13, color: Colors.black87),
+                                    ),
+                                  ],
                                 ),
                               ),
                               const SizedBox(width: 8),
@@ -794,7 +829,7 @@ class _OrdersListScreenState extends State<OrdersListScreen> {
                               totalOptionsCostPerUnit += (optPrice * q);
                             }
                           }
-                          double basePrice = (price is num ? price.toDouble() : 0.0) - totalOptionsCostPerUnit;
+                          double basePrice = (price is num ? price.toDouble() : 0.0);
                           if (basePrice < 0) basePrice = (price is num ? price.toDouble() : 0.0);
 
                           return Container(
@@ -1311,4 +1346,3 @@ class _OrdersListScreenState extends State<OrdersListScreen> {
     );
   }
 }
-
