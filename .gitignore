@@ -57,3 +57,7 @@ android/app/signing_info.txt
 /ios/Flutter/Flutter.framework
 /ios/Flutter/Flutter.podspec
 
+# 🔐 Signing Keys & Sensitive Files (Stored in private repo: talabak-ps-secrets)
+android/key.properties
+android/app/*.jks
+hatStar-secrets/
