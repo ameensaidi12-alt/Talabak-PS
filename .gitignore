@@ -61,3 +61,4 @@ android/app/signing_info.txt
 android/key.properties
 android/app/*.jks
 hatStar-secrets/
+hatStar-configs/
